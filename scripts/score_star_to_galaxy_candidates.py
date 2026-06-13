@@ -287,13 +287,37 @@ def main() -> None:
         ("group_research_top_03.csv", next_pool.head(3)),
         ("group_research_top_05.csv", next_pool.head(5)),
         ("group_research_top_10.csv", next_pool.head(10)),
+        ("group_research_top_15.csv", next_pool.head(15)),
         ("group_research_top_20.csv", next_pool.head(20)),
+        ("group_research_rank_06_10.csv", next_pool.iloc[5:10]),
+        ("group_research_rank_11_15.csv", next_pool.iloc[10:15]),
+        ("group_research_rank_16_20.csv", next_pool.iloc[15:20]),
+        ("group_research_rank_11_20.csv", next_pool.iloc[10:20]),
+        ("group_research_top10_plus_rank_16_20.csv", pd.concat([next_pool.head(10), next_pool.iloc[15:20]])),
+        (
+            "group_research_top10_plus_rank_17_19.csv",
+            pd.concat([next_pool.head(10), next_pool.iloc[[16, 17, 18]]]),
+        ),
         ("group_research_minpgal_092_top_10.csv", next_pool[next_pool["min_p_GALAXY"].ge(0.92)].head(10)),
         (
             "group_research_strong_local_top_10.csv",
             next_pool[next_pool["local_p_GALAXY"].ge(0.90)].head(10),
         ),
     ]
+    top10 = next_pool.head(10)
+    for rank in [7, 9, 10]:
+        grouped_specs.append(
+            (
+                f"group_research_top10_without_rank_{rank:02d}.csv",
+                top10[top10["next_probe_rank"].ne(rank)],
+            )
+        )
+    grouped_specs.append(
+        (
+            "group_research_top10_without_rank_07_10.csv",
+            top10[~top10["next_probe_rank"].isin([7, 10])],
+        )
+    )
     for name, changes in grouped_specs:
         if len(changes):
             active_submission_files.append(write_submission(base_anchor, changes, name))
