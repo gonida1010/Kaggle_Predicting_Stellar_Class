@@ -1,5 +1,6 @@
 data/
 artifacts/
+external_preds/
 대회설명모음/
 __pycache__/
 *.pyc
