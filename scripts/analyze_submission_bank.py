@@ -57,6 +57,14 @@ def read_submission(path: Path, sample: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def is_submission_csv(path: Path) -> bool:
+    try:
+        columns = list(pd.read_csv(path, nrows=0).columns)
+    except Exception:
+        return False
+    return columns == ["id", "class"]
+
+
 def main() -> None:
     args = parse_args()
     args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -64,7 +72,9 @@ def main() -> None:
     sample = pd.read_csv(DATA / "sample_submission.csv")
     anchor = read_submission(args.anchor_file, sample)
 
-    files = sorted(args.prediction_dir.glob("*.csv"))
+    all_csv_files = sorted(args.prediction_dir.glob("*.csv"))
+    files = [path for path in all_csv_files if is_submission_csv(path)]
+    skipped_files = [path for path in all_csv_files if path not in files]
     if not files:
         raise FileNotFoundError(
             f"No submission-bank CSVs found in {args.prediction_dir}. "
@@ -121,6 +131,7 @@ def main() -> None:
         "rows_all_bank_agree": int(votes["bank_nunique"].eq(1).sum()),
         "rows_anchor_differs_from_bank_consensus": int(len(disagreement)),
         "disagreement_change_counts": disagreement["change"].value_counts().to_dict(),
+        "skipped_non_submission_csvs": [path.name for path in skipped_files],
         "top_files": manifest.head(20).to_dict(orient="records"),
     }
     (args.output_dir / "submission_bank_report.json").write_text(

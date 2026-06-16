@@ -330,10 +330,10 @@ def build_recommendations() -> pd.DataFrame:
         {
             "priority": 3,
             "file": "scripts/build_ambiguous_vote_patch.py",
-            "type": "ambiguous_patch_builder",
-            "reason": "Implements the 0.97209 -> 0.97214 notebook idea: patch only 2-2-1 ambiguous rows using the XGB-like independent model.",
-            "success_rule": "Run it after adding 0.97209.csv and the five independent public notebook submissions.",
-            "fallback": "If those files are unavailable, keep current 0.97141 public anchor.",
+            "type": "research_only_ambiguous_reference",
+            "reason": "The 0.97209 -> 0.97214 idea identifies the hardest 2-2-1 ambiguous rows, but its output must not be used as a final submission.",
+            "success_rule": "Use it only to locate feature/subset regimes where independent models disagree.",
+            "fallback": "Do not include copied public-notebook final outputs in final submission selection.",
         },
         {
             "priority": 4,

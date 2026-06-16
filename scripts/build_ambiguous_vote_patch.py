@@ -174,10 +174,12 @@ def main() -> None:
         "count2_rows": int(count2_mask.sum()),
         "count3_rows": int(count3_mask.sum()),
         "generated_files": [path.name for path in generated],
-        "recommended_first": f"ambiguous_count2_replace_sub{args.replacement_index}.csv",
+        "recommended_first": None,
+        "research_only": True,
         "note": (
             "The deeper-look notebook reported that replacing only count==2 rows with sub4 "
-            "lifted a 0.97209 base to 0.97214. Treat count2_3 as exploratory and riskier."
+            "lifted a 0.97209 base to 0.97214. In this project these files are reference-only "
+            "and must not be selected as final submissions."
         ),
     }
     (args.output_dir / "ambiguous_vote_patch_report.json").write_text(
@@ -185,7 +187,14 @@ def main() -> None:
         encoding="utf-8",
     )
     (args.output_dir / "ACTIVE_AMBIGUOUS_PATCHES.txt").write_text(
-        "\n".join(["# Ambiguous vote patch candidates", *[path.name for path in generated]]) + "\n",
+        "\n".join(
+            [
+                "# Research-only ambiguous vote patch files",
+                "# Do not submit these as final outputs.",
+                *[path.name for path in generated],
+            ]
+        )
+        + "\n",
         encoding="utf-8",
     )
     print(json.dumps(report, indent=2, ensure_ascii=False))

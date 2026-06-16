@@ -17,7 +17,8 @@
    - 5개 독립 public notebook 결과를 비교한다.
    - 5개 중 mode count가 2인 `2-2-1` 초고난도 row만 따로 본다.
    - `0.97209` base에서 count==2 행만 XGB 제출 결과로 교체해 public `0.97214`를 기록했다.
-   - 전체를 건드리는 stacking이 아니라 ambiguity-only patch라서 public+generalization 후보로 가치가 있다.
+   - 전체를 건드리는 stacking이 아니라 ambiguity-only patch다.
+   - 단, 이 결과물은 우리 최종 제출 후보가 아니라 reference-only 연구 자료로만 둔다.
 
 `s6e6-0-97209-clean-final.ipynb` 자체는 모델이 아니라 `zoli800/s6e6-097209-final-submission` dataset의 `submission.csv`를 복사하는 노트북이다. 이 파일은 재현용 입력으로는 유용하지만, 그 자체를 우리 모델 개선으로 보면 안 된다.
 
@@ -32,6 +33,7 @@
   - `deeper-look` 노트북의 count==2 ambiguity patch를 이식했다.
   - 입력: `external_preds/0.97209.csv`와 5개 독립 notebook submission.
   - 출력: `artifacts/ambiguous_vote_patch/ambiguous_count2_replace_sub4.csv`.
+  - 이 산출물은 연구용이다. 최종 제출 selector에서는 제외한다.
 
 - `scripts/build_final_submission_tracks.py`
   - 최종 제출용 두 파일을 만든다.
@@ -87,11 +89,13 @@ cat artifacts/final_submissions/final_submission_tracks_report.json
 
 ## 오늘 판단
 
-외부 bank가 들어오기 전까지 public 제출을 더 쓰지 않는다.
+외부 고득점 output을 그대로 최종 제출에 쓰지 않는다. 특히 `0.97209` 또는 `0.97214` 계열 완성 submission은 reference-only다.
+
+우리 최우선 목표는 일반화 모델 성능이다. Public reference는 “어떤 feature-space에서 우리 모델이 흔들리는지”를 찾는 진단용으로만 사용한다.
 
 현재 fallback:
 
 - 일반화: `artifacts/final_submissions/final_generalization_model.csv`
 - public+일반화: `artifacts/final_submissions/final_public_generalization.csv`
 
-단, 현재 public+일반화 파일은 외부 bank가 없어서 `group_research_top_10.csv`, public `0.97141` fallback이다. 0.972급으로 올라가려면 외부 bank와 0.97209 계열 파일이 필요하다.
+단, 현재 public+일반화 파일은 `group_research_top_10.csv`, public `0.97141` fallback이다. 앞으로 제출보다 먼저 해야 할 일은 reference와 우리 순수 모델의 차이를 feature/subset별로 분석하고, `GALAXY<->STAR` 경계와 `O/B`, `M`, low `mag_range`, low `g-i` 구간의 일반화 성능을 올리는 것이다.

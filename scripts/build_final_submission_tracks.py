@@ -23,10 +23,12 @@ GENERALIZATION_CANDIDATES = [
 
 
 PUBLIC_GENERALIZATION_CANDIDATES = [
-    ARTIFACTS / "ambiguous_vote_patch" / "ambiguous_count2_replace_sub4.csv",
+    # Do not include copied public-notebook final outputs such as 0.97209/0.97214.
+    # The public track can include our own generated probes, but research-only
+    # reference outputs must stay out of final selection.
     ARTIFACTS / "bank_ridge_flip_v5" / "v5_voted_ensemble.csv",
-    EXTERNAL / "0.97209.csv",
-    ARTIFACTS / "bank_informed_probes" / "bank_strict_top_03.csv",
+    ARTIFACTS / "bank_ridge_flip_v5" / "v5_ridge_top150_tail20.csv",
+    ARTIFACTS / "bank_ridge_flip_v5" / "v5_ridge_top130.csv",
     ARTIFACTS / "star_to_galaxy_research" / "group_research_top_10.csv",
     ARTIFACTS / "probe_queue" / "group_minconf_095_star_to_galaxy_except_rank_01.csv",
     DATA / "submission.csv",
@@ -92,8 +94,8 @@ def main() -> None:
         "public_generalization_track": {
             "selected": str(public_src),
             "why": (
-                "Best available high-public candidate. Priority is ambiguous-vote patch, "
-                "then bank ridge flip ensemble, then known 0.97141 anchor fallback."
+                "Best available high-public candidate that is not a copied public-notebook final output. "
+                "Research-only references such as 0.97209/0.97214 are deliberately excluded."
             ),
             **public_generalization,
             "selection_candidates": [str(path) for path in PUBLIC_GENERALIZATION_CANDIDATES],
