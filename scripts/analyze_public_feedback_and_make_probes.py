@@ -14,6 +14,7 @@ sys.path.append(str(ROOT))
 DATA = ROOT / "data"
 ARTIFACTS = ROOT / "artifacts"
 STAR_RESEARCH = ARTIFACTS / "star_to_galaxy_research"
+TRANSITION_RESEARCH = ARTIFACTS / "transition_research"
 OUT_DIR = ARTIFACTS / "public_feedback"
 BASE_ANCHOR = ARTIFACTS / "probe_queue" / "group_minconf_095_star_to_galaxy_except_rank_01.csv"
 BASE_SCORE = 0.97139
@@ -32,6 +33,9 @@ OBSERVED_PUBLIC_SCORES = {
     "group_research_minpgal_092_top_10.csv": 0.97141,
     "group_research_top10_plus_rank_17_19.csv": 0.97141,
     "group_research_top10_without_rank_09.csv": 0.97141,
+    "feedback_replace_rank09_with_rank17.csv": 0.97141,
+    "transition_QSO_to_GALAXY_top_01.csv": 0.97141,
+    "transition_QSO_to_GALAXY_top_03.csv": 0.97141,
 }
 
 
@@ -39,6 +43,14 @@ def load_anchor() -> pd.DataFrame:
     if not BASE_ANCHOR.exists():
         raise FileNotFoundError(BASE_ANCHOR)
     return pd.read_csv(BASE_ANCHOR)
+
+
+def resolve_submission_path(file_name: str) -> Path:
+    for directory in [STAR_RESEARCH, OUT_DIR, TRANSITION_RESEARCH]:
+        path = directory / file_name
+        if path.exists():
+            return path
+    raise FileNotFoundError(f"{file_name} was not found under star/public-feedback/transition artifacts")
 
 
 def changed_ids(path: Path, base_anchor: pd.DataFrame) -> list[int]:
@@ -75,7 +87,7 @@ def main() -> None:
     observed_rows = []
     observed_id_sets = {}
     for file_name, score in OBSERVED_PUBLIC_SCORES.items():
-        ids = changed_ids(STAR_RESEARCH / file_name, base_anchor)
+        ids = changed_ids(resolve_submission_path(file_name), base_anchor)
         observed_id_sets[file_name] = set(ids)
         observed_rows.append(
             {
@@ -190,16 +202,18 @@ def main() -> None:
         },
         "interpretation": {
             "top10_without_rank09_tied_best": "rank 9 is public-neutral within rounded LB precision.",
+            "replace_rank09_with_rank17_tied_best": "rank 17 did not unlock a visible public gain.",
+            "qso_to_galaxy_top01_top03_tied_best": "QSO->GALAXY did not beat the current public anchor.",
             "top15_tied_best": "ranks 11-15 add no visible public gain and increase private risk.",
             "rank11_15_alone": OBSERVED_PUBLIC_SCORES["group_research_rank_11_15.csv"],
             "rank06_10_alone": OBSERVED_PUBLIC_SCORES["group_research_rank_06_10.csv"],
         },
-        "recommended_next_submission_order": [
-            "feedback_replace_rank09_with_rank17.csv",
-            "feedback_replace_rank09_with_rank18.csv",
-            "feedback_replace_rank09_with_rank19.csv",
-            "feedback_without_rank09_plus_best3.csv",
-        ],
+        "recommended_next_submission_order": [],
+        "next_direction": (
+            "Pause local row-probe submissions. The observed STAR->GALAXY, replacement, "
+            "and QSO->GALAXY probes are saturated at the rounded 0.97141 public score. "
+            "The next high-signal step is submission-bank disagreement analysis from external_preds/."
+        ),
         "generated_files": [path.name for path in generated],
     }
     (OUT_DIR / "public_feedback_report.json").write_text(
@@ -211,15 +225,15 @@ def main() -> None:
             [
                 "# Public feedback probe plan",
                 "# Current best remains group_research_top_10.csv at 0.97141.",
-                "# Submit these after the daily limit resets, in this order:",
+                "# Latest replacement and QSO->GALAXY probes tied 0.97141.",
+                "# Do not spend more submissions on local row-probes until submission-bank files are available.",
                 "",
-                "1. feedback_replace_rank09_with_rank17.csv",
-                "2. feedback_replace_rank09_with_rank18.csv",
-                "3. feedback_replace_rank09_with_rank19.csv",
-                "4. feedback_without_rank09_plus_best3.csv",
+                "Next action:",
+                "1. Put public submission-bank CSVs under external_preds/.",
+                "2. Run: python scripts/analyze_submission_bank.py --prediction-dir external_preds --anchor-file artifacts/star_to_galaxy_research/group_research_top_10.csv",
+                "3. Build new candidates from bank consensus disagreements plus our pure-model evidence.",
                 "",
-                "# If any replacement beats 0.97141, use it as the new public anchor.",
-                "# If all tie, keep group_research_top_10.csv for public and use fewer-row variants for private-risk control only.",
+                "# Keep group_research_top_10.csv as the public final candidate unless a bank-informed probe beats it.",
             ]
         )
         + "\n",
