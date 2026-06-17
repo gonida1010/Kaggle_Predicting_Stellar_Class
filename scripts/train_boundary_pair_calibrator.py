@@ -106,6 +106,14 @@ def parse_pair(pair: str) -> tuple[str, str]:
     return parts[0], parts[1]
 
 
+def display_path(path: Path) -> str:
+    resolved = path.resolve()
+    try:
+        return str(resolved.relative_to(ROOT.resolve()))
+    except ValueError:
+        return str(resolved)
+
+
 def balanced_accuracy(y_true: np.ndarray, y_pred: np.ndarray, n_classes: int) -> float:
     recalls = []
     for class_idx in range(n_classes):
@@ -749,6 +757,9 @@ def choose_prediction_iteration(
 
 def main() -> None:
     args = parse_args()
+    if not args.output_dir.is_absolute():
+        args.output_dir = ROOT / args.output_dir
+    args.output_dir = args.output_dir.resolve()
     args.output_dir.mkdir(parents=True, exist_ok=True)
     pairs = [parse_pair(pair) for pair in args.pairs]
 
@@ -1043,13 +1054,13 @@ def main() -> None:
         submission["class"] = encoder.inverse_transform(combined_test_pred)
         submission_path = args.output_dir / "boundary_pair_calibrated_submission.csv"
         submission.to_csv(submission_path, index=False)
-        report["submission_path"] = str(submission_path.relative_to(ROOT))
+        report["submission_path"] = display_path(submission_path)
         report["submission_class_share"] = submission["class"].value_counts(normalize=True).sort_index().to_dict()
     else:
         stale_submission = args.output_dir / "boundary_pair_calibrated_submission.csv"
         if stale_submission.exists() and not args.write_even_if_worse:
             stale_submission.unlink()
-            report["removed_stale_submission_path"] = str(stale_submission.relative_to(ROOT))
+            report["removed_stale_submission_path"] = display_path(stale_submission)
 
     (args.output_dir / "boundary_pair_calibrator_report.json").write_text(
         json.dumps(report, indent=2, ensure_ascii=False),
