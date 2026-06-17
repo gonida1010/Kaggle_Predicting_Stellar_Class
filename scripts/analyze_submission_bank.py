@@ -47,8 +47,9 @@ def score_from_filename(path: Path) -> float | None:
 
 def read_submission(path: Path, sample: pd.DataFrame) -> pd.DataFrame:
     df = pd.read_csv(path)
-    if list(df.columns) != ["id", "class"]:
-        raise ValueError(f"{path.name} columns must be ['id', 'class']")
+    if not {"id", "class"}.issubset(df.columns):
+        raise ValueError(f"{path.name} must contain ['id', 'class']")
+    df = df[["id", "class"]].copy()
     if not df["id"].equals(sample["id"]):
         raise ValueError(f"{path.name} id order differs from sample_submission.csv")
     invalid = sorted(set(df["class"].dropna()) - set(CLASSES))
@@ -62,7 +63,7 @@ def is_submission_csv(path: Path) -> bool:
         columns = list(pd.read_csv(path, nrows=0).columns)
     except Exception:
         return False
-    return columns == ["id", "class"]
+    return {"id", "class"}.issubset(columns)
 
 
 def main() -> None:

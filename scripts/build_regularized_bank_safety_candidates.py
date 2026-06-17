@@ -10,6 +10,7 @@ import pandas as pd
 from scipy import sparse
 from sklearn.linear_model import ElasticNet, Lasso, Ridge
 from sklearn.model_selection import LeaveOneOut
+from sklearn.metrics import mean_squared_error
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -34,6 +35,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--ridge-grid", type=int, default=40)
     parser.add_argument("--lasso-grid", type=int, default=40)
     parser.add_argument("--enet-grid", type=int, default=30)
+    parser.add_argument(
+        "--selection-mode",
+        choices=["fixed", "loo"],
+        default="fixed",
+        help="Use fixed alphas by default. LOO is closer to the notebook but much slower.",
+    )
+    parser.add_argument("--ridge-alpha", type=float, default=10.0)
+    parser.add_argument("--lasso-alpha", type=float, default=1e-5)
+    parser.add_argument("--enet-alpha", type=float, default=1e-5)
     return parser.parse_args()
 
 
@@ -130,6 +140,14 @@ def loo_search(x: sparse.csr_matrix, y: np.ndarray, estimator_fn, alphas: list[f
     model = estimator_fn(best_alpha)
     model.fit(x, y)
     return best_alpha, best_rmse, model
+
+
+def fixed_fit(x: sparse.csr_matrix, y: np.ndarray, estimator, alpha: float):
+    model = estimator(alpha)
+    model.fit(x, y)
+    pred = model.predict(x)
+    rmse = float(np.sqrt(mean_squared_error(y, pred)))
+    return alpha, rmse, model
 
 
 def extract_flips(
@@ -266,27 +284,41 @@ def main() -> None:
     x, y, inverse_features = build_design(scored, anchor, sample)
     support = np.asarray((x > 0).sum(axis=0)).ravel()
 
-    ridge_alpha, ridge_rmse, ridge_model = loo_search(
-        x,
-        y,
-        lambda alpha: Ridge(alpha=alpha, fit_intercept=True, random_state=42),
-        np.logspace(-3, 2, args.ridge_grid).tolist(),
-        "Ridge",
+    ridge_estimator = lambda alpha: Ridge(alpha=alpha, fit_intercept=True, random_state=42)
+    lasso_estimator = lambda alpha: Lasso(alpha=alpha, max_iter=10_000, random_state=42, fit_intercept=True)
+    enet_estimator = lambda alpha: ElasticNet(
+        alpha=alpha,
+        l1_ratio=0.5,
+        max_iter=10_000,
+        random_state=42,
+        fit_intercept=True,
     )
-    lasso_alpha, lasso_rmse, lasso_model = loo_search(
-        x,
-        y,
-        lambda alpha: Lasso(alpha=alpha, max_iter=50_000, random_state=42, fit_intercept=True),
-        np.logspace(-6, -1, args.lasso_grid).tolist(),
-        "Lasso",
-    )
-    enet_alpha, enet_rmse, enet_model = loo_search(
-        x,
-        y,
-        lambda alpha: ElasticNet(alpha=alpha, l1_ratio=0.5, max_iter=50_000, random_state=42, fit_intercept=True),
-        np.logspace(-6, -1, args.enet_grid).tolist(),
-        "ElasticNet",
-    )
+    if args.selection_mode == "loo":
+        ridge_alpha, ridge_rmse, ridge_model = loo_search(
+            x,
+            y,
+            ridge_estimator,
+            np.logspace(-3, 2, args.ridge_grid).tolist(),
+            "Ridge",
+        )
+        lasso_alpha, lasso_rmse, lasso_model = loo_search(
+            x,
+            y,
+            lasso_estimator,
+            np.logspace(-6, -1, args.lasso_grid).tolist(),
+            "Lasso",
+        )
+        enet_alpha, enet_rmse, enet_model = loo_search(
+            x,
+            y,
+            enet_estimator,
+            np.logspace(-6, -1, args.enet_grid).tolist(),
+            "ElasticNet",
+        )
+    else:
+        ridge_alpha, ridge_rmse, ridge_model = fixed_fit(x, y, ridge_estimator, args.ridge_alpha)
+        lasso_alpha, lasso_rmse, lasso_model = fixed_fit(x, y, lasso_estimator, args.lasso_alpha)
+        enet_alpha, enet_rmse, enet_model = fixed_fit(x, y, enet_estimator, args.enet_alpha)
 
     ridge_flips = extract_flips(np.asarray(ridge_model.coef_, dtype=np.float64), inverse_features, support, args.min_support)
     lasso_flips = extract_flips(np.asarray(lasso_model.coef_, dtype=np.float64), inverse_features, support, args.min_support)
@@ -307,6 +339,7 @@ def main() -> None:
         "scored_submissions": len(scored),
         "design_shape": list(x.shape),
         "min_support": args.min_support,
+        "selection_mode": args.selection_mode,
         "bad_ids": sorted(BAD_IDS),
         "ridge": {"alpha": float(ridge_alpha), "loo_rmse": float(ridge_rmse), "positive_flips": len(ridge_flips)},
         "lasso": {
