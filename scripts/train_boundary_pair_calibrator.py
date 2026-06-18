@@ -61,14 +61,21 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--cosine-min-lr", type=float, default=0.006)
     parser.add_argument(
         "--prediction-iteration-policy",
-        choices=["logloss", "fold_valid_bacc", "fixed"],
+        choices=["logloss", "fold_valid_bacc", "fixed", "fixed_with_fallback"],
         default="logloss",
         help=(
             "Iteration used for OOF/test probabilities. logloss uses LightGBM best_iteration; "
-            "fold_valid_bacc uses the best diagnostic valid balanced accuracy per fold; fixed uses --fixed-iteration."
+            "fold_valid_bacc uses the best diagnostic valid balanced accuracy per fold; fixed uses --fixed-iteration; "
+            "fixed_with_fallback uses --fixed-iteration unless a fold diagnostic point is better by --iteration-fallback-min-gain."
         ),
     )
     parser.add_argument("--fixed-iteration", type=int, default=None)
+    parser.add_argument(
+        "--iteration-fallback-min-gain",
+        type=float,
+        default=0.0,
+        help="Minimum fold valid balanced-accuracy gain required for fixed_with_fallback to override --fixed-iteration.",
+    )
     parser.add_argument("--to-right-min", type=float, default=0.52)
     parser.add_argument("--to-right-max", type=float, default=0.94)
     parser.add_argument("--to-left-min", type=float, default=0.06)
@@ -715,10 +722,15 @@ def write_train_valid_panel_svg(path: Path, title: str, rows: list[dict]) -> Non
     path.write_text("\n".join(parts), encoding="utf-8")
 
 
-def diagnostic_iterations(best_iteration: int, period: int) -> list[int]:
+def diagnostic_iterations(
+    best_iteration: int,
+    period: int,
+    extra_iterations: list[int] | None = None,
+) -> list[int]:
     best_iteration = max(1, int(best_iteration))
     period = max(1, int(period))
-    values = sorted(set([1, *range(period, best_iteration + 1, period), best_iteration]))
+    extras = [] if extra_iterations is None else [int(value) for value in extra_iterations if value is not None]
+    values = sorted(set([1, *range(period, best_iteration + 1, period), best_iteration, *extras]))
     return [value for value in values if value <= best_iteration]
 
 
@@ -728,14 +740,28 @@ def choose_prediction_iteration(
     fold_diagnostics: list[dict],
 ) -> tuple[int, dict]:
     best_iteration = max(1, int(best_iteration))
-    if args.prediction_iteration_policy == "fixed":
+    if args.prediction_iteration_policy in {"fixed", "fixed_with_fallback"}:
         if args.fixed_iteration is None:
-            raise ValueError("--fixed-iteration is required when --prediction-iteration-policy fixed.")
+            raise ValueError(
+                "--fixed-iteration is required when --prediction-iteration-policy fixed or fixed_with_fallback."
+            )
         iteration = min(max(1, int(args.fixed_iteration)), best_iteration)
         matched = next(
             (row for row in fold_diagnostics if int(row["iteration"]) == iteration),
             {},
         )
+        if args.prediction_iteration_policy == "fixed_with_fallback":
+            best_row = max(
+                fold_diagnostics,
+                key=lambda row: (
+                    float(row["valid_binary_balanced_accuracy"]),
+                    -int(row["iteration"]),
+                ),
+            )
+            fixed_score = float(matched.get("valid_binary_balanced_accuracy", "-inf"))
+            best_score = float(best_row["valid_binary_balanced_accuracy"])
+            if best_score - fixed_score >= float(args.iteration_fallback_min_gain):
+                return int(best_row["iteration"]), best_row
         return iteration, matched
 
     if args.prediction_iteration_policy == "fold_valid_bacc":
@@ -839,7 +865,10 @@ def main() -> None:
             )
             best_iteration = int(model.best_iteration_ or args.n_estimators)
             fold_diagnostics = []
-            for iteration in diagnostic_iterations(best_iteration, args.diagnostic_period):
+            extra_iterations = []
+            if args.fixed_iteration is not None:
+                extra_iterations.append(args.fixed_iteration)
+            for iteration in diagnostic_iterations(best_iteration, args.diagnostic_period, extra_iterations):
                 train_right = model.predict_proba(x.iloc[tr_pair_idx], num_iteration=iteration)[:, 1]
                 valid_right_pair = model.predict_proba(x.iloc[va_pair_idx], num_iteration=iteration)[:, 1]
                 diag_row = {
