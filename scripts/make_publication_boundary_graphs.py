@@ -111,10 +111,10 @@ def line_chart_svg(
     y_label: str,
     best_mode: str = "max",
 ) -> None:
-    width = 1280
+    width = 1500
     height = 760
     left = 116
-    right = 220
+    right = 240
     top = 92
     bottom = 92
     plot_w = width - left - right
@@ -145,8 +145,8 @@ def line_chart_svg(
     parts = [
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">',
         '<rect width="100%" height="100%" fill="#ffffff"/>',
-        f'<text x="32" y="38" font-family="Arial" font-size="24" font-weight="700" fill="#111827">{esc(title)}</text>',
-        f'<text x="32" y="66" font-family="Arial" font-size="14" fill="#4b5563">{esc(subtitle)}</text>',
+        f'<text x="32" y="38" font-family="Arial" font-size="22" font-weight="700" fill="#111827">{esc(title)}</text>',
+        f'<text x="32" y="66" font-family="Arial" font-size="13" fill="#4b5563">{esc(subtitle)}</text>',
         f'<rect x="{left}" y="{top}" width="{plot_w}" height="{plot_h}" fill="#ffffff" stroke="#9ca3af" stroke-width="1.2"/>',
     ]
 
@@ -211,13 +211,13 @@ def line_chart_svg(
 
 
 def experiment_delta_svg(output: Path, summary: pd.DataFrame) -> None:
-    df = summary.copy().sort_values("combined_delta", ascending=True)
-    width = 1280
-    row_h = 68
+    df = summary.copy().sort_values("combined_delta", ascending=False)
+    width = 1500
+    row_h = 62
     top = 92
     bottom = 70
-    left = 360
-    right = 110
+    left = 390
+    right = 140
     height = top + len(df) * row_h + bottom
     plot_w = width - left - right
     max_delta = max(float(df["combined_delta"].max()), 0.0001)
@@ -257,7 +257,7 @@ def experiment_delta_svg(output: Path, summary: pd.DataFrame) -> None:
         )
         parts.extend(
             [
-                f'<text x="32" y="{y+18}" font-family="Arial" font-size="14" font-weight="700" fill="#111827">{label}</text>',
+                f'<text x="32" y="{y+18}" font-family="Arial" font-size="13" font-weight="700" fill="#111827">{label}</text>',
                 f'<text x="32" y="{y+40}" font-family="Arial" font-size="12" fill="#4b5563">{esc(sub)}</text>',
                 f'<rect x="{left}" y="{y}" width="{x_pos(delta)-left:.2f}" height="28" fill="{color}" opacity="0.88"/>',
                 f'<text x="{x_pos(delta)+10:.2f}" y="{y+20}" font-family="Arial" font-size="13" fill="#111827">{delta:.8f}</text>',
@@ -279,8 +279,8 @@ def main() -> None:
     diag = pd.read_csv(diag_path)
     line_chart_svg(
         args.output_dir / "best_run_balanced_accuracy_curve.svg",
-        f"Best Boundary Run Balanced Accuracy: {best_run}",
-        "Fold mean with actual iteration ticks; orange marks the best mean validation point.",
+        "Boundary Run Balanced Accuracy",
+        f"best run: {best_run}; fold mean with actual iteration ticks; orange marks the best mean validation point.",
         diag,
         "iteration",
         [
@@ -292,8 +292,8 @@ def main() -> None:
     )
     line_chart_svg(
         args.output_dir / "best_run_logloss_curve.svg",
-        f"Best Boundary Run Logloss: {best_run}",
-        "Logloss may keep improving after balanced accuracy has plateaued.",
+        "Boundary Run Logloss",
+        f"best run: {best_run}; logloss may keep improving after balanced accuracy has plateaued.",
         diag,
         "iteration",
         [
