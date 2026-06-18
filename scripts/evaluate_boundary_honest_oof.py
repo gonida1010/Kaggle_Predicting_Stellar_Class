@@ -31,6 +31,24 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--pair", default="GALAXY:STAR")
     parser.add_argument("--n-splits", type=int, default=5)
     parser.add_argument("--seed", type=int, default=20260617)
+    parser.add_argument(
+        "--runs",
+        nargs="*",
+        default=None,
+        help="Optional run directory names to evaluate. Defaults to all reports.",
+    )
+    parser.add_argument(
+        "--mode",
+        choices=["reported", "select", "narrow_select"],
+        default="reported",
+        help=(
+            "reported evaluates the final reported rule fold-by-fold. "
+            "select reruns threshold/mask selection on non-holdout folds and is much slower. "
+            "narrow_select searches only near the reported rule."
+        ),
+    )
+    parser.add_argument("--select-window", type=float, default=0.02)
+    parser.add_argument("--select-steps", type=int, default=17)
     return parser.parse_args()
 
 
@@ -52,6 +70,56 @@ def threshold_config(report: dict) -> tuple[float, float, float, float, int]:
         float(config.get("to_left_max", 0.48)),
         int(config.get("threshold_steps", 22)),
     )
+
+
+def quick_search_rule(
+    module,
+    y: np.ndarray,
+    base_pred: np.ndarray,
+    right_oof: np.ndarray,
+    masks: dict[str, np.ndarray],
+    classes: list[str],
+    left_idx: int,
+    right_idx: int,
+    select_mask: np.ndarray,
+    reported_best: dict,
+    window: float,
+    steps: int,
+) -> dict:
+    base_score = balanced_accuracy_score(y[select_mask], base_pred[select_mask])
+    reported_mask = reported_best.get("mask", "none")
+    if reported_mask not in masks:
+        return {"mask": "none", "score": base_score, "delta": 0.0}
+    center = float(reported_best.get("to_right_threshold") or 0.5)
+    to_left = float(reported_best.get("to_left_threshold") or 0.02)
+    thresholds = np.linspace(max(0.0, center - window), min(1.0, center + window), max(3, steps))
+    best = {
+        "mask": reported_mask,
+        "to_right_threshold": center,
+        "to_left_threshold": to_left,
+        "score": base_score,
+        "delta": 0.0,
+    }
+    for threshold in thresholds:
+        pred = module.apply_pair_override(
+            base_pred,
+            right_oof,
+            masks[reported_mask],
+            left_idx,
+            right_idx,
+            float(threshold),
+            to_left,
+        )
+        score = balanced_accuracy_score(y[select_mask], pred[select_mask])
+        if score > best["score"]:
+            best = {
+                "mask": reported_mask,
+                "to_right_threshold": float(threshold),
+                "to_left_threshold": to_left,
+                "score": float(score),
+                "delta": float(score - base_score),
+            }
+    return best
 
 
 def main() -> None:
@@ -83,6 +151,8 @@ def main() -> None:
 
     for report_path in sorted(args.experiment_root.glob("*/boundary_pair_calibrator_report.json")):
         run_dir = report_path.parent
+        if args.runs is not None and run_dir.name not in set(args.runs):
+            continue
         right_path = run_dir / f"{left}_{right}_right_oof.npy"
         if not right_path.exists():
             continue
@@ -90,6 +160,7 @@ def main() -> None:
         pair_payload = report.get("pair_outputs", {}).get(args.pair)
         if not pair_payload:
             continue
+        reported_best = pair_payload.get("best", {})
 
         right_oof = np.load(right_path)
         honest_pred = base_pred.copy()
@@ -103,17 +174,35 @@ def main() -> None:
             select_mask &= ~np.isnan(right_oof)
             hold_mask &= ~np.isnan(right_oof)
 
-            best, _ = module.search_pair_rule(
-                y,
-                base_pred,
-                right_oof,
-                masks,
-                classes,
-                left,
-                right,
-                select_mask,
-                *threshold_config(report),
-            )
+            if args.mode == "select":
+                best, _ = module.search_pair_rule(
+                    y,
+                    base_pred,
+                    right_oof,
+                    masks,
+                    classes,
+                    left,
+                    right,
+                    select_mask,
+                    *threshold_config(report),
+                )
+            elif args.mode == "narrow_select":
+                best = quick_search_rule(
+                    module,
+                    y,
+                    base_pred,
+                    right_oof,
+                    masks,
+                    classes,
+                    left_idx,
+                    right_idx,
+                    select_mask,
+                    reported_best,
+                    args.select_window,
+                    args.select_steps,
+                )
+            else:
+                best = reported_best
 
             if best["mask"] == "none":
                 fold_pred = base_pred.copy()
@@ -147,7 +236,7 @@ def main() -> None:
                     "selected_mask": best["mask"],
                     "selected_to_right": best["to_right_threshold"],
                     "selected_to_left": best["to_left_threshold"],
-                    "selector_delta": best["delta"],
+                    "selector_delta": best.get("delta"),
                     "holdout_base_score": fold_base,
                     "holdout_score": fold_score,
                     "holdout_delta": fold_delta,
@@ -157,10 +246,10 @@ def main() -> None:
 
         honest_score = balanced_accuracy_score(y, honest_pred)
         optimistic = float(report.get("combined_delta", np.nan))
-        best = pair_payload.get("best", {})
         summary_rows.append(
             {
                 "run": run_dir.name,
+                "mode": args.mode,
                 "accepted": bool(report.get("accepted_as_candidate")),
                 "optimistic_oof": report.get("combined_eval_oof_balanced_accuracy"),
                 "optimistic_delta": optimistic,

@@ -9,3 +9,5 @@ __pycache__/
 .env
 블로그정리/
 .DS_Store
+external_sources/
+outputs/
