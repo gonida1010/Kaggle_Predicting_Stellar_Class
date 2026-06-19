@@ -45,7 +45,7 @@ def parse_args() -> argparse.Namespace:
         default=["GALAXY:STAR", "QSO:GALAXY"],
         help="Boundary pairs to test, e.g. GALAXY:STAR QSO:GALAXY.",
     )
-    parser.add_argument("--feature-set", choices=["base", "advanced"], default="advanced")
+    parser.add_argument("--feature-set", choices=["base", "advanced", "realmlp"], default="advanced")
     parser.add_argument("--fold-limit", type=int, default=N_SPLITS)
     parser.add_argument("--n-estimators", type=int, default=2200)
     parser.add_argument("--early-stopping-rounds", type=int, default=120)

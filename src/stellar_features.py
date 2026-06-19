@@ -7,6 +7,11 @@ import pandas as pd
 BANDS = ["u", "g", "r", "i", "z"]
 CAT_COLS = ["spectral_type", "galaxy_population"]
 ADVANCED_CAT_COLS = ["spectral_population"]
+RAW_NUM_COLS = ["alpha", "delta", "u", "g", "r", "i", "z", "redshift"]
+REALMLP_FLOOR_CAT_COLS = [f"{col}_floor_cat" for col in RAW_NUM_COLS]
+REALMLP_BIN_CAT_COLS = ["delta_qbin_100", "delta_qbin_500"]
+REALMLP_COMBO_CAT_COLS = ["alpha_floor_x_delta_floor", "u_floor_x_z_floor"]
+REALMLP_CAT_COLS = [*REALMLP_FLOOR_CAT_COLS, *REALMLP_BIN_CAT_COLS, *REALMLP_COMBO_CAT_COLS]
 
 
 def add_features(df: pd.DataFrame) -> pd.DataFrame:
@@ -99,10 +104,76 @@ def add_advanced_features(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-def encode_categories(train: pd.DataFrame, test: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+def _safe_divide_by_redshift(values: pd.Series, redshift: pd.Series) -> pd.Series:
+    sign = np.where(redshift.to_numpy() < 0, -1.0, 1.0)
+    denom = np.where(redshift.abs().to_numpy() > 1e-5, redshift.to_numpy(), sign * 1e-5)
+    divided = values.to_numpy() / denom
+    return pd.Series(np.clip(divided, -1_000_000.0, 1_000_000.0), index=values.index)
+
+
+def _fit_quantile_edges(values: pd.Series, n_bins: int) -> np.ndarray:
+    quantiles = np.linspace(0.0, 1.0, n_bins + 1)
+    edges = np.quantile(values.to_numpy(dtype=np.float64), quantiles)
+    edges = np.unique(edges)
+    if len(edges) <= 2:
+        return np.array([-np.inf, np.inf], dtype=np.float64)
+    edges[0] = -np.inf
+    edges[-1] = np.inf
+    return edges
+
+
+def _apply_quantile_bin(values: pd.Series, edges: np.ndarray) -> pd.Series:
+    return pd.cut(values, bins=edges, labels=False, include_lowest=True).fillna(-1).astype("int16").astype(str)
+
+
+def add_realmlp_style_features(train: pd.DataFrame, test: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Feature set inspired by the public RealMLP v5 single-model recipe.
+
+    Target encoding from that notebook must stay fold-local, so this function only
+    creates non-target-derived numerical, binned, and interaction features.
+    """
+    train_out = add_advanced_features(train)
+    test_out = add_advanced_features(test)
+
+    for out in (train_out, test_out):
+        out["g_div_redshift"] = _safe_divide_by_redshift(out["g"], out["redshift"])
+        out["i_div_redshift"] = _safe_divide_by_redshift(out["i"], out["redshift"])
+        out["realmlp_mag_mean"] = out[BANDS].mean(axis=1)
+        out["realmlp_mag_range"] = out[BANDS].max(axis=1) - out[BANDS].min(axis=1)
+        shifted_redshift = out["redshift"] - min(float(train_out["redshift"].min()), float(test_out["redshift"].min()), 0.0)
+        out["realmlp_log1p_shifted_redshift"] = np.log1p(shifted_redshift.clip(lower=0))
+
+        for col in RAW_NUM_COLS:
+            out[f"{col}_floor_cat"] = np.floor(out[col]).clip(-10000, 10000).astype("int16").astype(str)
+
+        out["alpha_floor_x_delta_floor"] = out["alpha_floor_cat"] + "_" + out["delta_floor_cat"]
+        out["u_floor_x_z_floor"] = out["u_floor_cat"] + "_" + out["z_floor_cat"]
+
+    for n_bins in (100, 500):
+        edges = _fit_quantile_edges(train_out["delta"], n_bins)
+        train_out[f"delta_qbin_{n_bins}"] = _apply_quantile_bin(train_out["delta"], edges)
+        test_out[f"delta_qbin_{n_bins}"] = _apply_quantile_bin(test_out["delta"], edges)
+
+    return train_out, test_out
+
+
+def categorical_columns_for_feature_set(feature_set: str) -> list[str]:
+    cols = [*CAT_COLS]
+    if feature_set in {"advanced", "realmlp"}:
+        cols.extend(ADVANCED_CAT_COLS)
+    if feature_set == "realmlp":
+        cols.extend(REALMLP_CAT_COLS)
+    return list(dict.fromkeys(cols))
+
+
+def encode_categories(
+    train: pd.DataFrame,
+    test: pd.DataFrame,
+    feature_set: str = "base",
+) -> tuple[pd.DataFrame, pd.DataFrame]:
     train_out = train.copy()
     test_out = test.copy()
-    for col in [*CAT_COLS, *ADVANCED_CAT_COLS]:
+    for col in categorical_columns_for_feature_set(feature_set):
         if col not in train_out.columns or col not in test_out.columns:
             continue
         categories = sorted(set(train_out[col].astype(str)) | set(test_out[col].astype(str)))
@@ -125,9 +196,11 @@ def make_xy(
     elif feature_set == "advanced":
         train_fe = add_advanced_features(train)
         test_fe = add_advanced_features(test)
+    elif feature_set == "realmlp":
+        train_fe, test_fe = add_realmlp_style_features(train, test)
     else:
         raise ValueError(f"Unknown feature_set: {feature_set}")
-    train_fe, test_fe = encode_categories(train_fe, test_fe)
+    train_fe, test_fe = encode_categories(train_fe, test_fe, feature_set=feature_set)
 
     drop_cols = [id_col, target]
     features = [col for col in train_fe.columns if col not in drop_cols]

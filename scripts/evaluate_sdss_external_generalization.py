@@ -19,6 +19,12 @@ from catboost import CatBoostClassifier, Pool
 from sklearn.metrics import balanced_accuracy_score
 from sklearn.model_selection import StratifiedKFold
 from sklearn.preprocessing import LabelEncoder
+from sklearn.utils.class_weight import compute_class_weight
+
+try:
+    import xgboost as xgb
+except ModuleNotFoundError:  # pragma: no cover - depends on local env
+    xgb = None
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -31,10 +37,37 @@ DATA = ROOT / "data"
 ARTIFACTS = ROOT / "artifacts"
 PURE_DIR = ARTIFACTS / "pure_model_ensemble"
 OUT_DIR = ARTIFACTS / "sdss_external_generalization"
+OUTPUTS = ROOT / "outputs"
 LABELS = ["GALAXY", "QSO", "STAR"]
 REQUIRED_EXTERNAL = ["alpha", "delta", "u", "g", "r", "i", "z", "redshift", "class"]
 SEED = 20260617
 N_SPLITS = 5
+DEFAULT_SUBMISSION_CANDIDATES = [
+    {
+        "name": "07_lr_v9",
+        "path": OUTPUTS / "07_lr_stacker_v9_direct_oof970279.csv",
+        "oof_score": 0.9702794714614861,
+        "public_score": 0.97101,
+    },
+    {
+        "name": "18_oof_bias_realmlp0",
+        "path": OUTPUTS / "18_oof_generalization_lr_v9_bias_realmlp0_oof970345.csv",
+        "oof_score": 0.9703454236206706,
+        "public_score": 0.97069,
+    },
+    {
+        "name": "19_private_guarded",
+        "path": OUTPUTS / "19_PRIVATE_CV_guarded_01_star_to_galaxy_rz_0_allconf_oof970351.csv",
+        "oof_score": 0.9703513342698414,
+        "public_score": 0.97090,
+    },
+    {
+        "name": "20_private_guarded_gk",
+        "path": OUTPUTS / "20_PRIVATE_CV_guarded_03_all_changed_gk_redseq_allconf_oof970350.csv",
+        "oof_score": 0.9703502631214501,
+        "public_score": None,
+    },
+]
 
 
 def parse_args() -> argparse.Namespace:
@@ -47,7 +80,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--external-data", type=Path, default=None)
     parser.add_argument("--output-dir", type=Path, default=OUT_DIR)
     parser.add_argument("--external-sample", type=int, default=0, help="0 means use all external rows.")
-    parser.add_argument("--models", nargs="+", default=["lgbm", "catboost"], choices=["lgbm", "catboost"])
+    parser.add_argument("--feature-set", choices=["base", "advanced", "realmlp"], default="base")
+    parser.add_argument("--models", nargs="+", default=["lgbm", "catboost"], choices=["lgbm", "catboost", "xgboost"])
     parser.add_argument("--fold-limit", type=int, default=N_SPLITS)
     parser.add_argument(
         "--boundary-runs",
@@ -66,6 +100,14 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=0,
         help="Debug/smoke-test cap for LGBM n_estimators and CatBoost iterations. 0 keeps production defaults.",
+    )
+    parser.add_argument(
+        "--skip-submission-context",
+        action="store_true",
+        help=(
+            "Skip the 07/18/19/20 submission-candidate context table. "
+            "These CSVs cannot be directly scored on external rows because they only contain Kaggle test ids."
+        ),
     )
     return parser.parse_args()
 
@@ -153,6 +195,86 @@ def transition_counts(before: np.ndarray, after: np.ndarray, classes: list[str])
     return dict(sorted(counts.items()))
 
 
+def transition_counts_labels(before: np.ndarray, after: np.ndarray) -> dict[str, int]:
+    changed = before != after
+    counts = Counter(f"{b}->{a}" for b, a in zip(before[changed], after[changed]))
+    return dict(sorted(counts.items()))
+
+
+def safe_relative(path: Path) -> str:
+    try:
+        return str(path.relative_to(ROOT))
+    except ValueError:
+        return str(path)
+
+
+def build_submission_candidate_context(sample: pd.DataFrame) -> pd.DataFrame:
+    rows = []
+    baseline_labels: np.ndarray | None = None
+    baseline_name: str | None = None
+    expected_ids = sample["id"].to_numpy()
+
+    for spec in DEFAULT_SUBMISSION_CANDIDATES:
+        path = Path(spec["path"])
+        row = {
+            "name": spec["name"],
+            "path": safe_relative(path),
+            "exists": path.exists(),
+            "oof_score": spec["oof_score"],
+            "public_score": spec["public_score"],
+            "external_score_available": False,
+            "external_score_reason": (
+                "Submission CSV contains predictions only for Kaggle test ids. "
+                "It cannot be scored on SDSS external rows unless the same model pipeline can produce external predictions."
+            ),
+        }
+        if not path.exists():
+            rows.append(row)
+            continue
+
+        submission = pd.read_csv(path)
+        ids_equal_sample = submission["id"].to_numpy().shape == expected_ids.shape and np.array_equal(
+            submission["id"].to_numpy(),
+            expected_ids,
+        )
+        labels = submission["class"].astype(str).to_numpy()
+        class_counts = submission["class"].value_counts().reindex(LABELS, fill_value=0)
+        class_share = (class_counts / len(submission)).to_dict()
+        row.update(
+            {
+                "row_count": int(len(submission)),
+                "ids_equal_sample": bool(ids_equal_sample),
+                "class_counts": json.dumps(class_counts.astype(int).to_dict(), ensure_ascii=False),
+                "class_share": json.dumps({k: float(v) for k, v in class_share.items()}, ensure_ascii=False),
+            }
+        )
+
+        if baseline_labels is None:
+            baseline_labels = labels
+            baseline_name = spec["name"]
+            row.update(
+                {
+                    "baseline_name": "",
+                    "changed_vs_baseline": 0,
+                    "transition_counts_vs_baseline": "{}",
+                }
+            )
+        else:
+            row.update(
+                {
+                    "baseline_name": baseline_name,
+                    "changed_vs_baseline": int((labels != baseline_labels).sum()),
+                    "transition_counts_vs_baseline": json.dumps(
+                        transition_counts_labels(baseline_labels, labels),
+                        ensure_ascii=False,
+                    ),
+                }
+            )
+        rows.append(row)
+
+    return pd.DataFrame(rows)
+
+
 def score_record(
     name: str,
     y_ext: np.ndarray,
@@ -227,6 +349,49 @@ def catboost_params() -> dict:
     }
 
 
+def xgboost_params(n_classes: int) -> dict:
+    report_path = ARTIFACTS / "xgboost_cv" / "report.json"
+    if report_path.exists():
+        params = dict(load_json(report_path)["params"])
+    else:
+        params = {
+            "objective": "multi:softprob",
+            "eval_metric": "mlogloss",
+            "num_class": n_classes,
+            "eta": 0.032,
+            "max_depth": 6,
+            "min_child_weight": 8.0,
+            "subsample": 0.88,
+            "colsample_bytree": 0.86,
+            "alpha": 0.08,
+            "lambda": 5.0,
+            "max_bin": 256,
+            "tree_method": "hist",
+            "seed": SEED,
+            "nthread": -1,
+        }
+    params["num_class"] = n_classes
+    params["seed"] = int(params.get("seed", SEED))
+    return params
+
+
+def balanced_sample_weight(y: np.ndarray) -> np.ndarray:
+    class_values = np.unique(y)
+    weights = compute_class_weight("balanced", classes=class_values, y=y)
+    weight_map = dict(zip(class_values, weights))
+    return np.array([weight_map[value] for value in y], dtype=np.float32)
+
+
+def xgboost_predict_proba(model, matrix, n_classes: int) -> np.ndarray:
+    best_iteration = int(getattr(model, "best_iteration", 0))
+    iteration_end = best_iteration + 1 if best_iteration >= 0 else 0
+    pred = model.predict(matrix, iteration_range=(0, iteration_end))
+    pred = np.asarray(pred, dtype=np.float32)
+    if pred.ndim == 1:
+        pred = pred.reshape(-1, n_classes)
+    return normalize_probs(pred)
+
+
 def train_lgbm_external(
     x: pd.DataFrame,
     y: np.ndarray,
@@ -264,6 +429,62 @@ def train_lgbm_external(
                 "fold": fold,
                 "local_fold_balanced_accuracy": float(balanced_accuracy_score(y[va_idx], valid.argmax(axis=1))),
                 "best_iteration": int(model.best_iteration_ or params["n_estimators"]),
+            }
+        )
+    return oof, ext, rows
+
+
+def train_xgboost_external(
+    x: pd.DataFrame,
+    y: np.ndarray,
+    x_ext: pd.DataFrame,
+    classes: list[str],
+    features: list[str],
+    splits: list[tuple[np.ndarray, np.ndarray]],
+    log_period: int,
+    max_estimators: int,
+) -> tuple[np.ndarray, np.ndarray, list[dict]]:
+    if xgb is None:
+        raise RuntimeError("xgboost is not installed. Install it with: python -m pip install xgboost")
+    params = xgboost_params(len(classes))
+    num_boost_round = 4200
+    xgb_report_path = ARTIFACTS / "xgboost_cv" / "report.json"
+    if xgb_report_path.exists():
+        report = load_json(xgb_report_path)
+        num_boost_round = int(report.get("num_boost_round", num_boost_round))
+    if max_estimators > 0:
+        num_boost_round = min(num_boost_round, int(max_estimators))
+
+    oof = np.zeros((len(x), len(classes)), dtype=np.float32)
+    ext = np.zeros((len(x_ext), len(classes)), dtype=np.float32)
+    rows = []
+    ext_matrix = xgb.DMatrix(x_ext, feature_names=features)
+    for fold, (tr_idx, va_idx) in enumerate(splits, start=1):
+        progress(f"Training XGBoost fold {fold}/{len(splits)}")
+        train_matrix = xgb.DMatrix(
+            x.iloc[tr_idx],
+            label=y[tr_idx],
+            weight=balanced_sample_weight(y[tr_idx]),
+            feature_names=features,
+        )
+        valid_matrix = xgb.DMatrix(x.iloc[va_idx], label=y[va_idx], feature_names=features)
+        model = xgb.train(
+            params,
+            train_matrix,
+            num_boost_round=num_boost_round,
+            evals=[(valid_matrix, "valid")],
+            early_stopping_rounds=160,
+            verbose_eval=log_period,
+        )
+        valid = xgboost_predict_proba(model, valid_matrix, len(classes))
+        oof[va_idx] = valid
+        ext += xgboost_predict_proba(model, ext_matrix, len(classes)) / len(splits)
+        rows.append(
+            {
+                "model": "xgboost",
+                "fold": fold,
+                "local_fold_balanced_accuracy": float(balanced_accuracy_score(y[va_idx], valid.argmax(axis=1))),
+                "best_iteration": int(model.best_iteration),
             }
         )
     return oof, ext, rows
@@ -480,8 +701,8 @@ def main() -> None:
         progress(f"Class order from train is {classes}")
     y_ext = pd.Series(external["class"].astype(str)).map({label: idx for idx, label in enumerate(classes)}).to_numpy()
 
-    progress("Building base feature matrices")
-    x, _, x_ext, features = make_xy(train, external, feature_set="base")
+    progress(f"Building {args.feature_set} feature matrices")
+    x, _, x_ext, features = make_xy(train, external, feature_set=args.feature_set)
     cv = StratifiedKFold(n_splits=N_SPLITS, shuffle=True, random_state=SEED)
     splits = list(cv.split(x, y))[: args.fold_limit]
     if len(splits) != N_SPLITS:
@@ -495,6 +716,11 @@ def main() -> None:
         oof, ext, rows = train_lgbm_external(x, y, x_ext, classes, splits, args.log_period, args.max_estimators)
         proba_by_model["lgbm"] = ext
         local_oof_by_model["lgbm"] = oof
+        fold_rows.extend(rows)
+    if "xgboost" in args.models:
+        oof, ext, rows = train_xgboost_external(x, y, x_ext, classes, features, splits, args.log_period, args.max_estimators)
+        proba_by_model["xgboost"] = ext
+        local_oof_by_model["xgboost"] = oof
         fold_rows.extend(rows)
     if "catboost" in args.models:
         oof, ext, rows = train_catboost_external(x, y, x_ext, classes, features, splits, args.max_estimators)
@@ -510,12 +736,17 @@ def main() -> None:
         unweighted = normalize_probs(sum(proba_by_model.values()) / len(proba_by_model))
         score_rows.append(score_record("unweighted_external_ensemble", y_ext, unweighted.argmax(axis=1), classes, {"kind": "ensemble"}))
 
-    raw_ext, cal_ext = apply_pure_config(proba_by_model, classes)
-    pure_ext_pred = cal_ext.argmax(axis=1)
-    score_rows.append(score_record("pure_config_external", y_ext, pure_ext_pred, classes, {"kind": "pure_config"}))
+    pure_models_available = any(model in proba_by_model for model in ("lgbm", "catboost"))
+    raw_ext = None
+    cal_ext = None
+    if pure_models_available:
+        raw_ext, cal_ext = apply_pure_config(proba_by_model, classes)
+        pure_ext_pred = cal_ext.argmax(axis=1)
+        score_rows.append(score_record("pure_config_external", y_ext, pure_ext_pred, classes, {"kind": "pure_config"}))
 
     boundary_fold_rows = []
     if not args.skip_boundary and set(["lgbm", "catboost"]).issubset(proba_by_model):
+        assert raw_ext is not None and cal_ext is not None
         boundary_rows, boundary_fold_rows = evaluate_boundary_runs(
             args.boundary_runs,
             train,
@@ -535,20 +766,30 @@ def main() -> None:
     fold_df = pd.DataFrame([*fold_rows, *boundary_fold_rows])
     summary.to_csv(args.output_dir / "sdss_external_score_summary.csv", index=False)
     fold_df.to_csv(args.output_dir / "sdss_external_fold_diagnostics.csv", index=False)
+    submission_context_path = None
+    if not args.skip_submission_context:
+        sample = pd.read_csv(DATA / "sample_submission.csv")
+        submission_context = build_submission_candidate_context(sample)
+        submission_context_path = args.output_dir / "submission_candidate_context.csv"
+        submission_context.to_csv(submission_context_path, index=False)
 
     report = {
         "status": "ok",
         "external_path": str(external_path),
         "external_raw_shape": list(external_raw.shape),
         "external_used_shape": list(external.shape),
+        "feature_set": args.feature_set,
         "models": args.models,
         "fold_limit": len(splits),
-        "summary_path": str((args.output_dir / "sdss_external_score_summary.csv").relative_to(ROOT)),
-        "fold_diagnostics_path": str((args.output_dir / "sdss_external_fold_diagnostics.csv").relative_to(ROOT)),
+        "summary_path": safe_relative(args.output_dir / "sdss_external_score_summary.csv"),
+        "fold_diagnostics_path": safe_relative(args.output_dir / "sdss_external_fold_diagnostics.csv"),
+        "submission_candidate_context_path": safe_relative(submission_context_path) if submission_context_path else None,
         "best_external": summary.iloc[0].to_dict() if len(summary) else None,
         "note": (
             "This validation trains only on competition train labels and evaluates on labeled SDSS external rows. "
-            "It measures external generalization, not Kaggle public/private score directly."
+            "It measures external generalization, not Kaggle public/private score directly. "
+            "Submission CSV candidates 07/18/19/20 are recorded as context only because they cannot be directly "
+            "applied to external rows without their underlying prediction pipeline."
         ),
     }
     (args.output_dir / "report.json").write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")

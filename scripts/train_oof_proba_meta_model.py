@@ -35,7 +35,7 @@ def parse_args() -> argparse.Namespace:
         )
     )
     parser.add_argument("--output-dir", type=Path, default=OUT_DIR)
-    parser.add_argument("--feature-set", choices=["base", "advanced"], default="advanced")
+    parser.add_argument("--feature-set", choices=["base", "advanced", "realmlp"], default="advanced")
     parser.add_argument("--fold-limit", type=int, default=N_SPLITS)
     parser.add_argument("--n-estimators", type=int, default=2600)
     parser.add_argument("--early-stopping-rounds", type=int, default=140)

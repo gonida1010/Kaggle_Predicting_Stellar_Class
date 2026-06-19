@@ -1,0 +1,17 @@
+category,name,local_oof_bac,public_lb,sdss_external_bac,sdss_external_delta_vs_pure,changed_rows_vs_07,notes
+submission_candidate,07_lr_v9,0.9702794714614861,0.97101,,,0,OOF stacker baseline. Public is noisy but this is current reliable OOF anchor.
+submission_candidate,18_oof_bias_realmlp0,0.9703454236206706,0.97069,,,365,OOF-only optimizer result. More aggressive QSO/GALAXY/STAR shifts; public dropped.
+submission_candidate,19_private_guarded,0.9703513342698414,0.97090,,,107,Highest known OOF CSV candidate. Direct SDSS scoring impossible because it is Kaggle test-id submission.
+submission_candidate,20_private_guarded_gk,0.9703502631214501,,,,107,Similar OOF to 19. Public not confirmed in saved context.
+external_model,catboost,, ,0.9205782928437469,,,"Best SDSS external model. Recalls GALAXY=0.8932795 QSO=0.9226834 STAR=0.9457720."
+external_model,pure_config_external,, ,0.9151723542643436,0.0,,"Original pure LGBM/CatBoost config on SDSS external."
+external_model,lgbm,, ,0.9101638725728026,,,"SDSS external weak point is STAR recall 0.8998333."
+external_model,unweighted_external_ensemble,, ,0.9146241107579506,,,"Worse than pure_config and CatBoost on SDSS external."
+boundary_external,gs_lr020_iter25_mid,0.9664876350944285,,0.9151387097189655,-0.000033644545378130886,,"OOF positive but SDSS external slightly worse than pure."
+boundary_external,gs_lr024_iter20_mid,0.9664734125018194,,0.9150545983555203,-0.00011775590882334708,,"OOF positive but SDSS external worse than pure."
+boundary_external,gs_lr024_iter20_fallback,0.9665024504711942,,0.9150209538101421,-0.00015140045420147796,,"Best boundary OOF among tested runs but SDSS external worse."
+boundary_external,gs_fixed050_mid_capacity,0.9664500072842417,,0.9150209538101421,-0.00015140045420147796,,"Boundary-style changes not robust on SDSS external."
+private_guarded,private_cv_guarded_01_star_to_galaxy_rz_0_allconf,0.9703513342698414,, , ,53,"Fixed 49 OOF rows, broke 4. Meta fold positive rate 0.92; worst class recall delta -0.00004835."
+private_guarded,private_cv_guarded_03_all_changed_gk_redseq_allconf,0.9703502631214501,, , ,77,"Fixed 47, broke 29, still_wrong 1. Meta fold positive rate 0.84."
+private_guarded,private_cv_base_bias_only,0.9703241827230015,, , ,235,"Base bias improves OOF but worst class recall delta -0.0004110 and one subset worsens."
+

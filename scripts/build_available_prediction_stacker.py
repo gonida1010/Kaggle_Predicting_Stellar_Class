@@ -210,6 +210,51 @@ def own_model_pairs(n_train: int, n_test: int) -> list[dict]:
             ARTIFACTS / "oof_proba_meta_model" / "meta_oof_proba.npy",
             ARTIFACTS / "oof_proba_meta_model" / "meta_test_proba.npy",
         ),
+        (
+            "our-ovr-catboost",
+            ARTIFACTS / "ovr_catboost" / "ovr_catboost_oof_proba.npy",
+            ARTIFACTS / "ovr_catboost" / "ovr_catboost_test_proba.npy",
+        ),
+        (
+            "our-lgbm-bac-stop",
+            ARTIFACTS / "lgbm_cv_bac_stop" / "lgbm_oof_proba.npy",
+            ARTIFACTS / "lgbm_cv_bac_stop" / "lgbm_test_proba.npy",
+        ),
+        (
+            "our-catboost-depth7-long",
+            ARTIFACTS / "catboost_cv_bac_stop_long_depth7" / "catboost_oof_proba.npy",
+            ARTIFACTS / "catboost_cv_bac_stop_long_depth7" / "catboost_test_proba.npy",
+        ),
+        (
+            "our-xgboost",
+            ARTIFACTS / "xgboost_cv" / "xgboost_oof_proba.npy",
+            ARTIFACTS / "xgboost_cv" / "xgboost_test_proba.npy",
+        ),
+        (
+            "our-lgbm-realmlp-features",
+            ARTIFACTS / "lgbm_cv_realmlp_features" / "lgbm_oof_proba.npy",
+            ARTIFACTS / "lgbm_cv_realmlp_features" / "lgbm_test_proba.npy",
+        ),
+        (
+            "our-xgboost-realmlp-features",
+            ARTIFACTS / "xgboost_cv_realmlp_features" / "xgboost_oof_proba.npy",
+            ARTIFACTS / "xgboost_cv_realmlp_features" / "xgboost_test_proba.npy",
+        ),
+        (
+            "our-ovr-xgboost-realmlp-features",
+            ARTIFACTS / "ovr_xgboost_realmlp_features" / "ovr_xgboost_oof_proba.npy",
+            ARTIFACTS / "ovr_xgboost_realmlp_features" / "ovr_xgboost_test_proba.npy",
+        ),
+        (
+            "our-catboost-realmlp-features",
+            ARTIFACTS / "catboost_cv_realmlp_features" / "catboost_oof_proba.npy",
+            ARTIFACTS / "catboost_cv_realmlp_features" / "catboost_test_proba.npy",
+        ),
+        (
+            "our-ovr-catboost-realmlp-features",
+            ARTIFACTS / "ovr_catboost_realmlp_features" / "ovr_catboost_oof_proba.npy",
+            ARTIFACTS / "ovr_catboost_realmlp_features" / "ovr_catboost_test_proba.npy",
+        ),
     ]
     out = []
     for name, oof_path, test_path in candidates:
