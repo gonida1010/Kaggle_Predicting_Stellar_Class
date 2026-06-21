@@ -38,7 +38,7 @@ def parse_args() -> argparse.Namespace:
         )
     )
     parser.add_argument("--output-dir", type=Path, default=ARTIFACTS)
-    parser.add_argument("--feature-set", choices=["base", "advanced", "realmlp"], default="base")
+    parser.add_argument("--feature-set", choices=["base", "advanced", "realmlp", "catv3"], default="base")
     parser.add_argument("--fold-limit", type=int, default=N_SPLITS)
     parser.add_argument("--iterations", type=int, default=3200)
     parser.add_argument("--early-stopping-rounds", type=int, default=180)

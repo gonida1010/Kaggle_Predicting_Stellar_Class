@@ -251,9 +251,24 @@ def own_model_pairs(n_train: int, n_test: int) -> list[dict]:
             ARTIFACTS / "catboost_cv_realmlp_features" / "catboost_test_proba.npy",
         ),
         (
+            "our-catboost-catv3-views",
+            ARTIFACTS / "catboost_cv_catv3_views" / "catboost_oof_proba.npy",
+            ARTIFACTS / "catboost_cv_catv3_views" / "catboost_test_proba.npy",
+        ),
+        (
             "our-ovr-catboost-realmlp-features",
             ARTIFACTS / "ovr_catboost_realmlp_features" / "ovr_catboost_oof_proba.npy",
             ARTIFACTS / "ovr_catboost_realmlp_features" / "ovr_catboost_test_proba.npy",
+        ),
+        (
+            "our-classwise-logistic-blender",
+            ARTIFACTS / "classwise_logistic_blender_c010" / "classwise_blender_oof.npy",
+            ARTIFACTS / "classwise_logistic_blender_c010" / "classwise_blender_test.npy",
+        ),
+        (
+            "our-lgbm-foldsafe-te-realmlp",
+            ARTIFACTS / "lgbm_foldsafe_te_realmlp" / "lgbm_te_oof_proba.npy",
+            ARTIFACTS / "lgbm_foldsafe_te_realmlp" / "lgbm_te_test_proba.npy",
         ),
     ]
     out = []

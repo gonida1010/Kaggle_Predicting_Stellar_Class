@@ -12,6 +12,48 @@ REALMLP_FLOOR_CAT_COLS = [f"{col}_floor_cat" for col in RAW_NUM_COLS]
 REALMLP_BIN_CAT_COLS = ["delta_qbin_100", "delta_qbin_500"]
 REALMLP_COMBO_CAT_COLS = ["alpha_floor_x_delta_floor", "u_floor_x_z_floor"]
 REALMLP_CAT_COLS = [*REALMLP_FLOOR_CAT_COLS, *REALMLP_BIN_CAT_COLS, *REALMLP_COMBO_CAT_COLS]
+CATV3_QBIN_SOURCE_COLS = [
+    "alpha",
+    "delta",
+    "u",
+    "g",
+    "r",
+    "i",
+    "z",
+    "redshift",
+    "u-g",
+    "g-r",
+    "r-i",
+    "i-z",
+    "u-r",
+    "g-i",
+    "r-z",
+    "mag_std",
+    "mag_range",
+    "redshift_abs",
+]
+CATV3_ROUND_CAT_COLS = [f"{col}_round1_cat" for col in RAW_NUM_COLS]
+CATV3_FRAC_CAT_COLS = [f"{col}_frac20_cat" for col in RAW_NUM_COLS]
+CATV3_QBIN_CAT_COLS = [f"{col}_qbin_{n_bins}" for col in CATV3_QBIN_SOURCE_COLS for n_bins in (32, 128)]
+CATV3_EXTRA_CAT_COLS = ["redshift_sign_cat"]
+CATV3_COMBO_CAT_COLS = [
+    "g_floor_x_i_floor",
+    "r_floor_x_z_floor",
+    "redshift_floor_x_g_i_qbin_128",
+    "g_i_qbin_128_x_redshift_qbin_128",
+    "mag_range_qbin_128_x_redshift_qbin_128",
+    "spectral_population_x_redshift_qbin_32",
+    "u_g_qbin_128_x_g_r_qbin_128",
+    "r_i_qbin_128_x_i_z_qbin_128",
+    "redshift_sign_x_g_i_qbin_128",
+]
+CATV3_CAT_COLS = [
+    *CATV3_ROUND_CAT_COLS,
+    *CATV3_FRAC_CAT_COLS,
+    *CATV3_QBIN_CAT_COLS,
+    *CATV3_EXTRA_CAT_COLS,
+    *CATV3_COMBO_CAT_COLS,
+]
 
 
 def add_features(df: pd.DataFrame) -> pd.DataFrame:
@@ -126,6 +168,19 @@ def _apply_quantile_bin(values: pd.Series, edges: np.ndarray) -> pd.Series:
     return pd.cut(values, bins=edges, labels=False, include_lowest=True).fillna(-1).astype("int16").astype(str)
 
 
+def _float_round_cat(values: pd.Series, scale: float = 10.0) -> pd.Series:
+    rounded = np.rint(values.to_numpy(dtype=np.float64) * scale)
+    rounded = np.clip(rounded, -30000, 30000).astype("int32")
+    return pd.Series(rounded.astype(str), index=values.index)
+
+
+def _float_frac_cat(values: pd.Series, n_bins: int = 20) -> pd.Series:
+    frac = np.mod(values.to_numpy(dtype=np.float64), 1.0)
+    bins = np.floor(frac * n_bins)
+    bins = np.clip(bins, 0, n_bins - 1).astype("int16")
+    return pd.Series(bins.astype(str), index=values.index)
+
+
 def add_realmlp_style_features(train: pd.DataFrame, test: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Feature set inspired by the public RealMLP v5 single-model recipe.
 
@@ -157,12 +212,56 @@ def add_realmlp_style_features(train: pd.DataFrame, test: pd.DataFrame) -> tuple
     return train_out, test_out
 
 
+def add_catv3_style_features(train: pd.DataFrame, test: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """CatBoost v3-inspired categorical views without target-derived information.
+
+    The public CatBoost v3 notebook relied heavily on native categorical views:
+    floor/rounded/decimal buckets, quantile bins, and compact interaction
+    categories. This function ports that idea while keeping all target encoding
+    and any class statistics outside the feature builder.
+    """
+    train_out, test_out = add_realmlp_style_features(train, test)
+
+    for out in (train_out, test_out):
+        out["redshift_sign_cat"] = np.where(out["redshift"].to_numpy(dtype=np.float64) < 0, "neg", "nonneg")
+        for col in RAW_NUM_COLS:
+            out[f"{col}_round1_cat"] = _float_round_cat(out[col], scale=10.0)
+            out[f"{col}_frac20_cat"] = _float_frac_cat(out[col], n_bins=20)
+
+    for col in CATV3_QBIN_SOURCE_COLS:
+        if col not in train_out.columns or col not in test_out.columns:
+            continue
+        for n_bins in (32, 128):
+            edges = _fit_quantile_edges(train_out[col], n_bins)
+            train_out[f"{col}_qbin_{n_bins}"] = _apply_quantile_bin(train_out[col], edges)
+            test_out[f"{col}_qbin_{n_bins}"] = _apply_quantile_bin(test_out[col], edges)
+
+    for out in (train_out, test_out):
+        out["g_floor_x_i_floor"] = out["g_floor_cat"] + "_" + out["i_floor_cat"]
+        out["r_floor_x_z_floor"] = out["r_floor_cat"] + "_" + out["z_floor_cat"]
+        out["redshift_floor_x_g_i_qbin_128"] = out["redshift_floor_cat"] + "_" + out["g-i_qbin_128"]
+        out["g_i_qbin_128_x_redshift_qbin_128"] = out["g-i_qbin_128"] + "_" + out["redshift_qbin_128"]
+        out["mag_range_qbin_128_x_redshift_qbin_128"] = (
+            out["mag_range_qbin_128"] + "_" + out["redshift_qbin_128"]
+        )
+        out["spectral_population_x_redshift_qbin_32"] = (
+            out["spectral_population"].astype(str) + "_" + out["redshift_qbin_32"]
+        )
+        out["u_g_qbin_128_x_g_r_qbin_128"] = out["u-g_qbin_128"] + "_" + out["g-r_qbin_128"]
+        out["r_i_qbin_128_x_i_z_qbin_128"] = out["r-i_qbin_128"] + "_" + out["i-z_qbin_128"]
+        out["redshift_sign_x_g_i_qbin_128"] = out["redshift_sign_cat"] + "_" + out["g-i_qbin_128"]
+
+    return train_out, test_out
+
+
 def categorical_columns_for_feature_set(feature_set: str) -> list[str]:
     cols = [*CAT_COLS]
-    if feature_set in {"advanced", "realmlp"}:
+    if feature_set in {"advanced", "realmlp", "catv3"}:
         cols.extend(ADVANCED_CAT_COLS)
-    if feature_set == "realmlp":
+    if feature_set in {"realmlp", "catv3"}:
         cols.extend(REALMLP_CAT_COLS)
+    if feature_set == "catv3":
+        cols.extend(CATV3_CAT_COLS)
     return list(dict.fromkeys(cols))
 
 
@@ -198,6 +297,8 @@ def make_xy(
         test_fe = add_advanced_features(test)
     elif feature_set == "realmlp":
         train_fe, test_fe = add_realmlp_style_features(train, test)
+    elif feature_set == "catv3":
+        train_fe, test_fe = add_catv3_style_features(train, test)
     else:
         raise ValueError(f"Unknown feature_set: {feature_set}")
     train_fe, test_fe = encode_categories(train_fe, test_fe, feature_set=feature_set)
