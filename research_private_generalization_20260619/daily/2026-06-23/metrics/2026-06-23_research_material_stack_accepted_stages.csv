@@ -1,0 +1,6 @@
+stage,model,weight,score,delta_vs_raw_base,bias
+base_raw,56_te_disagreement_oof0970573,0.0,0.970572593097016,0.0,"{'GALAXY': 1.0, 'QSO': 1.0, 'STAR': 1.0}"
+base_bias,56_te_disagreement_oof0970573,0.0,0.9705739777797557,1.3846827396912786e-06,"{'GALAXY': 1.0067114093959733, 'QSO': 0.9865771812080537, 'STAR': 1.0067114093959733}"
+blend_round_1,private_cv_stable_submissions_realmlp_feature_bank_after_public::private_cv_guarded_03_all_changed_rz_0_2_safe_color_cand_margin_005,0.05,0.9705907557105954,1.8162613579342235e-05,"{'GALAXY': 1.0067114093959733, 'QSO': 0.9865771812080537, 'STAR': 1.0067114093959733}"
+blend_round_2,our-classwise-logistic-blender,0.095,0.9705988450376427,2.6251940626664805e-05,"{'GALAXY': 1.0067114093959733, 'QSO': 0.9865771812080537, 'STAR': 1.0067114093959733}"
+blend_round_3,oof_generalization_stack_realmlp_feature_bank_fast::generalization_stack,0.005,0.9706028745010792,3.0281404063137174e-05,"{'GALAXY': 1.0067114093959733, 'QSO': 0.9865771812080537, 'STAR': 1.0067114093959733}"

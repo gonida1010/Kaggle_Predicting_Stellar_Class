@@ -1,0 +1,5 @@
+stage,source,class,alpha,score,delta_vs_start
+start,68_research_material_stack,,0.0,0.9706028745010792,0.0
+class_blend_round_1,available_catv3,STAR,0.07,0.9706102397824717,7.365281392557321e-06
+class_blend_round_2,classwise_blender_c010,STAR,0.034999999999999996,0.9706164211254126,1.3546624333393709e-05
+class_blend_round_3,69_guarded_research_stack,STAR,0.01,0.9706213336378409,1.845913676168376e-05

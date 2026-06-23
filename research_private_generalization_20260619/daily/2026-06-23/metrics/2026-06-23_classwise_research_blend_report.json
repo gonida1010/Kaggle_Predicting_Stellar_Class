@@ -1,0 +1,81 @@
+{
+  "purpose": "Class-column OOF blend over private/generalization research materials.",
+  "start_source": "68_research_material_stack",
+  "start_oof_balanced_accuracy": 0.9706028745010792,
+  "final_oof_balanced_accuracy": 0.9706213336378409,
+  "delta_vs_start": 1.845913676168376e-05,
+  "class_recalls": {
+    "GALAXY": 0.9603502172300519,
+    "QSO": 0.9771049059696268,
+    "STAR": 0.9744088777138437
+  },
+  "start_class_recalls": {
+    "GALAXY": 0.9603104800254318,
+    "QSO": 0.9771134425445822,
+    "STAR": 0.9743847009332237
+  },
+  "transition_counts_vs_start": {
+    "GALAXY->STAR": 21,
+    "QSO->STAR": 5,
+    "STAR->GALAXY": 35,
+    "STAR->QSO": 2
+  },
+  "changed_rows_vs_start": 63,
+  "test_changed_rows_vs_start": 27,
+  "stability": {
+    "meta_fold_mean_delta_vs_start": 1.845901505077574e-05,
+    "meta_fold_min_delta_vs_start": -2.2635603018628103e-05,
+    "meta_fold_max_delta_vs_start": 7.810220074389029e-05,
+    "meta_fold_positive_rate_vs_start": 0.72
+  },
+  "output_csv": "outputs/84_PRIVATE_CV_classwise_research_blend_oof0970621.csv",
+  "stage_rows": [
+    {
+      "stage": "start",
+      "source": "68_research_material_stack",
+      "class": "",
+      "alpha": 0.0,
+      "score": 0.9706028745010792,
+      "delta_vs_start": 0.0
+    },
+    {
+      "stage": "class_blend_round_1",
+      "source": "available_catv3",
+      "class": "STAR",
+      "alpha": 0.07,
+      "score": 0.9706102397824717,
+      "delta_vs_start": 7.365281392557321e-06
+    },
+    {
+      "stage": "class_blend_round_2",
+      "source": "classwise_blender_c010",
+      "class": "STAR",
+      "alpha": 0.034999999999999996,
+      "score": 0.9706164211254126,
+      "delta_vs_start": 1.3546624333393709e-05
+    },
+    {
+      "stage": "class_blend_round_3",
+      "source": "69_guarded_research_stack",
+      "class": "STAR",
+      "alpha": 0.01,
+      "score": 0.9706213336378409,
+      "delta_vs_start": 1.845913676168376e-05
+    }
+  ],
+  "source_scores": {
+    "56_te_disagreement": 0.970572593097016,
+    "68_research_material_stack": 0.9706028745010792,
+    "69_guarded_research_stack": 0.9705951042727222,
+    "classwise_blender_c010": 0.9703944834239558,
+    "realmlp_feature_bank_stack": 0.970478593845662,
+    "realmlp_feature_guard_03": 0.9704594519502523,
+    "available_ovr_xgb_realmlp": 0.9704663477840935,
+    "available_realmlp_feature_bank": 0.9704466920639917,
+    "available_foldsafe_te": 0.9704083812049826,
+    "available_catv3": 0.9704232809918981,
+    "oof_stack_with_catv3": 0.9705279858650383,
+    "oof_stack_with_foldsafe_te": 0.9705279858650383,
+    "oof_stack_with_classwise_blender": 0.9705279858650383
+  }
+}

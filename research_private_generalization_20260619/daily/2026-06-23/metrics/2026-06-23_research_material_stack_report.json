@@ -1,0 +1,82 @@
+{
+  "purpose": "Stack available algorithm OOF/test sources plus generated research-material OOF/test candidates.",
+  "base_name": "56_te_disagreement_oof0970573",
+  "raw_base_oof_balanced_accuracy": 0.970572593097016,
+  "best_oof_balanced_accuracy": 0.9706028745010792,
+  "delta_vs_raw_base": 3.0281404063137174e-05,
+  "best_bias": {
+    "GALAXY": 1.0067114093959733,
+    "QSO": 0.9865771812080537,
+    "STAR": 1.0067114093959733
+  },
+  "accepted_stages": [
+    {
+      "stage": "base_raw",
+      "model": "56_te_disagreement_oof0970573",
+      "weight": 0.0,
+      "score": 0.970572593097016,
+      "delta_vs_raw_base": 0.0,
+      "bias": {
+        "GALAXY": 1.0,
+        "QSO": 1.0,
+        "STAR": 1.0
+      }
+    },
+    {
+      "stage": "base_bias",
+      "model": "56_te_disagreement_oof0970573",
+      "weight": 0.0,
+      "score": 0.9705739777797557,
+      "delta_vs_raw_base": 1.3846827396912786e-06,
+      "bias": {
+        "GALAXY": 1.0067114093959733,
+        "QSO": 0.9865771812080537,
+        "STAR": 1.0067114093959733
+      }
+    },
+    {
+      "stage": "blend_round_1",
+      "model": "private_cv_stable_submissions_realmlp_feature_bank_after_public::private_cv_guarded_03_all_changed_rz_0_2_safe_color_cand_margin_005",
+      "weight": 0.05,
+      "score": 0.9705907557105954,
+      "delta_vs_raw_base": 1.8162613579342235e-05,
+      "bias": {
+        "GALAXY": 1.0067114093959733,
+        "QSO": 0.9865771812080537,
+        "STAR": 1.0067114093959733
+      }
+    },
+    {
+      "stage": "blend_round_2",
+      "model": "our-classwise-logistic-blender",
+      "weight": 0.095,
+      "score": 0.9705988450376427,
+      "delta_vs_raw_base": 2.6251940626664805e-05,
+      "bias": {
+        "GALAXY": 1.0067114093959733,
+        "QSO": 0.9865771812080537,
+        "STAR": 1.0067114093959733
+      }
+    },
+    {
+      "stage": "blend_round_3",
+      "model": "oof_generalization_stack_realmlp_feature_bank_fast::generalization_stack",
+      "weight": 0.005,
+      "score": 0.9706028745010792,
+      "delta_vs_raw_base": 3.0281404063137174e-05,
+      "bias": {
+        "GALAXY": 1.0067114093959733,
+        "QSO": 0.9865771812080537,
+        "STAR": 1.0067114093959733
+      }
+    }
+  ],
+  "class_recalls": {
+    "GALAXY": 0.9603104800254318,
+    "QSO": 0.9771134425445822,
+    "STAR": 0.9743847009332237
+  },
+  "source_count": 35,
+  "artifact_submission": "artifacts/research_material_stack_20260623/research_material_stack_submission.csv",
+  "output_submission": "outputs/68_PRIVATE_CV_research_material_stack_oof0970603.csv"
+}

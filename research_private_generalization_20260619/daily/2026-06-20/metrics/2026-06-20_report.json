@@ -1,0 +1,132 @@
+{
+  "purpose": "Patch only OOF-safe disagreement rows where fold-safe TE LightGBM challenges the classwise greedy base.",
+  "base_oof": "artifacts/oof_generalization_stack_with_classwise_blender_fast/generalization_stack_oof.npy",
+  "base_test": "artifacts/oof_generalization_stack_with_classwise_blender_fast/generalization_stack_test.npy",
+  "challenger_oof": "artifacts/lgbm_foldsafe_te_realmlp/lgbm_te_oof_proba.npy",
+  "challenger_test": "artifacts/lgbm_foldsafe_te_realmlp/lgbm_te_test_proba.npy",
+  "challenger_name": "lgbm_foldsafe_te",
+  "base_oof_balanced_accuracy": 0.9705279858650383,
+  "challenger_oof_balanced_accuracy": 0.9678998352167443,
+  "oof_disagreements": 5760,
+  "test_disagreements": 2289,
+  "candidate_count": 13428,
+  "best": {
+    "name": "high_gi_low_rz_base_galaxy_to_star_c0_55_m0_15_b0_60",
+    "oof_balanced_accuracy": 0.9705725931,
+    "oof_delta_vs_base": 4.46072e-05,
+    "selected_rows": 83,
+    "test_selected_rows": 40,
+    "feature_mask": "high_gi_low_rz",
+    "transition_rule": "base_galaxy_to_star",
+    "challenger_conf_min": 0.55,
+    "challenger_margin_min": 0.15,
+    "base_conf_max": 0.6,
+    "class_recalls": {
+      "GALAXY": 0.9599713892,
+      "QSO": 0.9773012472,
+      "STAR": 0.9744451429
+    },
+    "transition_counts": {
+      "GALAXY->STAR": 83
+    },
+    "outcome_counts": {
+      "broken": 59,
+      "fixed": 24
+    },
+    "meta_fold_mean_delta": 4.46073e-05,
+    "meta_fold_min_delta": -3.28359e-05,
+    "meta_fold_positive_rate": 0.76
+  },
+  "selected_outputs": [
+    {
+      "rank": 56,
+      "path": "outputs/56_PRIVATE_CV_te_disagree_high_gi_low_rz_base_galaxy_to_star_c0_55_m0_15_b0_60_oof0970573.csv",
+      "name": "high_gi_low_rz_base_galaxy_to_star_c0_55_m0_15_b0_60",
+      "oof_balanced_accuracy": 0.970572593097016,
+      "oof_delta_vs_base": 4.460723197774463e-05,
+      "selected_rows": 83,
+      "test_selected_rows": 40,
+      "meta_fold_min_delta": -3.283586585589582e-05,
+      "meta_fold_positive_rate": 0.76
+    },
+    {
+      "rank": 57,
+      "path": "outputs/57_PRIVATE_CV_te_disagree_gi_7_9_base_galaxy_to_star_c0_40_m0_15_b0_60_oof0970573.csv",
+      "name": "gi_7_9_base_galaxy_to_star_c0_40_m0_15_b0_60",
+      "oof_balanced_accuracy": 0.970572593097016,
+      "oof_delta_vs_base": 4.460723197774463e-05,
+      "selected_rows": 83,
+      "test_selected_rows": 40,
+      "meta_fold_min_delta": -3.283586585589582e-05,
+      "meta_fold_positive_rate": 0.76
+    },
+    {
+      "rank": 58,
+      "path": "outputs/58_PRIVATE_CV_te_disagree_high_gi_low_rz_base_galaxy_to_non_galaxy_c0_55_m0_15_b0_60_oof0970573.csv",
+      "name": "high_gi_low_rz_base_galaxy_to_non_galaxy_c0_55_m0_15_b0_60",
+      "oof_balanced_accuracy": 0.970572593097016,
+      "oof_delta_vs_base": 4.460723197774463e-05,
+      "selected_rows": 83,
+      "test_selected_rows": 40,
+      "meta_fold_min_delta": -3.283586585589582e-05,
+      "meta_fold_positive_rate": 0.76
+    },
+    {
+      "rank": 59,
+      "path": "outputs/59_PRIVATE_CV_te_disagree_high_gi_low_rz_base_galaxy_to_non_galaxy_c0_45_m0_15_b0_60_oof0970573.csv",
+      "name": "high_gi_low_rz_base_galaxy_to_non_galaxy_c0_45_m0_15_b0_60",
+      "oof_balanced_accuracy": 0.970572593097016,
+      "oof_delta_vs_base": 4.460723197774463e-05,
+      "selected_rows": 83,
+      "test_selected_rows": 40,
+      "meta_fold_min_delta": -3.283586585589582e-05,
+      "meta_fold_positive_rate": 0.76
+    },
+    {
+      "rank": 60,
+      "path": "outputs/60_PRIVATE_CV_te_disagree_high_gi_low_rz_base_galaxy_to_non_galaxy_c0_40_m0_15_b0_60_oof0970573.csv",
+      "name": "high_gi_low_rz_base_galaxy_to_non_galaxy_c0_40_m0_15_b0_60",
+      "oof_balanced_accuracy": 0.970572593097016,
+      "oof_delta_vs_base": 4.460723197774463e-05,
+      "selected_rows": 83,
+      "test_selected_rows": 40,
+      "meta_fold_min_delta": -3.283586585589582e-05,
+      "meta_fold_positive_rate": 0.76
+    },
+    {
+      "rank": 61,
+      "path": "outputs/61_PRIVATE_CV_te_disagree_gi_7_9_base_galaxy_to_star_c0_45_m0_15_b0_60_oof0970573.csv",
+      "name": "gi_7_9_base_galaxy_to_star_c0_45_m0_15_b0_60",
+      "oof_balanced_accuracy": 0.970572593097016,
+      "oof_delta_vs_base": 4.460723197774463e-05,
+      "selected_rows": 83,
+      "test_selected_rows": 40,
+      "meta_fold_min_delta": -3.283586585589582e-05,
+      "meta_fold_positive_rate": 0.76
+    },
+    {
+      "rank": 62,
+      "path": "outputs/62_PRIVATE_CV_te_disagree_gi_7_9_base_galaxy_to_star_c0_50_m0_15_b0_60_oof0970573.csv",
+      "name": "gi_7_9_base_galaxy_to_star_c0_50_m0_15_b0_60",
+      "oof_balanced_accuracy": 0.970572593097016,
+      "oof_delta_vs_base": 4.460723197774463e-05,
+      "selected_rows": 83,
+      "test_selected_rows": 40,
+      "meta_fold_min_delta": -3.283586585589582e-05,
+      "meta_fold_positive_rate": 0.76
+    },
+    {
+      "rank": 63,
+      "path": "outputs/63_PRIVATE_CV_te_disagree_high_gi_low_rz_base_galaxy_to_non_galaxy_c0_50_m0_15_b0_60_oof0970573.csv",
+      "name": "high_gi_low_rz_base_galaxy_to_non_galaxy_c0_50_m0_15_b0_60",
+      "oof_balanced_accuracy": 0.970572593097016,
+      "oof_delta_vs_base": 4.460723197774463e-05,
+      "selected_rows": 83,
+      "test_selected_rows": 40,
+      "meta_fold_min_delta": -3.283586585589582e-05,
+      "meta_fold_positive_rate": 0.76
+    }
+  ],
+  "candidate_summary": "artifacts/te_disagreement_patch_classwise37/candidate_summary.csv",
+  "score_plot": "artifacts/te_disagreement_patch_classwise37/te_disagreement_candidate_scores.png"
+}
