@@ -4,6 +4,7 @@ import argparse
 import json
 import os
 import sys
+import threading
 from datetime import datetime
 from pathlib import Path
 
@@ -63,11 +64,72 @@ def parse_args() -> argparse.Namespace:
         default="early-stop-best",
     )
     parser.add_argument("--fixed-iteration", type=int, default=0)
+    parser.add_argument(
+        "--save-snapshot",
+        action="store_true",
+        help="Enable CatBoost snapshots per fold so long runs can resume after interruption.",
+    )
+    parser.add_argument("--snapshot-interval", type=int, default=600)
+    parser.add_argument(
+        "--heartbeat-seconds",
+        type=int,
+        default=60,
+        help="Print Python-side heartbeat while CatBoost is inside model.fit. This avoids buffered CatBoost stdout looking frozen.",
+    )
+    parser.add_argument(
+        "--use-best-model",
+        action="store_true",
+        help=(
+            "Let CatBoost shrink the fitted model to its eval_metric best iteration. "
+            "Do not use this with --prediction-iteration-policy valid-bac-best."
+        ),
+    )
     return parser.parse_args()
 
 
 def progress(message: str) -> None:
     print(f"[{datetime.now().strftime('%H:%M:%S')}] {message}", flush=True)
+
+
+def read_catboost_metric_tail(train_dir: Path) -> str | None:
+    for filename in ("test_error.tsv", "learn_error.tsv"):
+        path = train_dir / filename
+        if not path.exists():
+            continue
+        try:
+            lines = path.read_text(encoding="utf-8").strip().splitlines()
+        except OSError:
+            continue
+        if len(lines) < 2:
+            continue
+        header = lines[0].split("\t")
+        values = lines[-1].split("\t")
+        pairs = []
+        for key, value in zip(header, values):
+            if key.lower() in {"iter", "iteration"} or len(pairs) < 4:
+                pairs.append(f"{key}={value}")
+        return f"{filename}: " + ", ".join(pairs)
+    return None
+
+
+def start_fit_heartbeat(train_dir: Path, fold: int, interval_seconds: int) -> tuple[threading.Event, threading.Thread | None]:
+    stop_event = threading.Event()
+    if interval_seconds <= 0:
+        return stop_event, None
+
+    def run() -> None:
+        last_line = None
+        while not stop_event.wait(interval_seconds):
+            line = read_catboost_metric_tail(train_dir)
+            if line and line != last_line:
+                progress(f"fold {fold} heartbeat: {line}")
+                last_line = line
+            else:
+                progress(f"fold {fold} heartbeat: CatBoost fit still running")
+
+    thread = threading.Thread(target=run, daemon=True)
+    thread.start()
+    return stop_event, thread
 
 
 def normalize_probs(proba: np.ndarray) -> np.ndarray:
@@ -250,6 +312,11 @@ def write_diagnostic_plots(diagnostics: pd.DataFrame, output_dir: Path) -> None:
 
 def main() -> None:
     args = parse_args()
+    if args.use_best_model and args.prediction_iteration_policy == "valid-bac-best":
+        raise ValueError(
+            "--use-best-model is unsafe with --prediction-iteration-policy valid-bac-best: "
+            "CatBoost would shrink to eval_metric/logloss best before the BAC diagnostic can choose a later iteration."
+        )
     if not args.output_dir.is_absolute():
         args.output_dir = ROOT / args.output_dir
     args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -277,7 +344,7 @@ def main() -> None:
         "bagging_temperature": float(args.bagging_temperature),
         "auto_class_weights": "Balanced",
         "random_seed": int(args.seed),
-        "allow_writing_files": False,
+        "allow_writing_files": bool(args.save_snapshot or args.heartbeat_seconds > 0),
         "thread_count": -1,
         "verbose": int(args.log_period),
     }
@@ -302,16 +369,50 @@ def main() -> None:
         train_pool = Pool(x.iloc[tr_idx], y[tr_idx], cat_features=cat_features)
         valid_pool = Pool(x.iloc[va_idx], y[va_idx], cat_features=cat_features)
         diag_train_pool = Pool(x.iloc[diag_tr_idx], y[diag_tr_idx], cat_features=cat_features)
-        model = CatBoostClassifier(**params)
-        model.fit(
-            train_pool,
-            eval_set=valid_pool,
-            use_best_model=True,
-            early_stopping_rounds=int(args.early_stopping_rounds),
+        fold_train_dir = args.output_dir / "catboost_train_dir" / f"fold_{fold}"
+        fold_train_dir.mkdir(parents=True, exist_ok=True)
+        fold_params = {**params, "train_dir": str(fold_train_dir)}
+        model = CatBoostClassifier(**fold_params)
+        fit_kwargs = {
+            "eval_set": valid_pool,
+            "use_best_model": bool(args.use_best_model),
+            "early_stopping_rounds": int(args.early_stopping_rounds),
+        }
+        if args.save_snapshot:
+            fit_kwargs.update(
+                {
+                    "save_snapshot": True,
+                    "snapshot_file": str(args.output_dir / f"catboost_fold{fold}.snapshot"),
+                    "snapshot_interval": int(args.snapshot_interval),
+                }
+            )
+        heartbeat_stop, heartbeat_thread = start_fit_heartbeat(
+            fold_train_dir,
+            fold,
+            int(args.heartbeat_seconds),
         )
+        try:
+            progress(
+                f"fold {fold}: fit start; use_best_model={bool(args.use_best_model)}, "
+                f"early_stop_metric={args.early_stop_metric}, "
+                f"prediction_iteration_policy={args.prediction_iteration_policy}"
+            )
+            model.fit(
+                train_pool,
+                **fit_kwargs,
+            )
+        finally:
+            heartbeat_stop.set()
+            if heartbeat_thread is not None:
+                heartbeat_thread.join(timeout=2)
 
         tree_count = int(model.tree_count_)
         early_stop_best_iteration = int(model.get_best_iteration() if model.get_best_iteration() is not None else tree_count - 1)
+        progress(
+            f"fold {fold}: fit done; tree_count={tree_count}, "
+            f"eval_metric_best_iteration={early_stop_best_iteration}, "
+            f"model_was_not_shrunk={not bool(args.use_best_model)}"
+        )
         evals_result = model.get_evals_result()
         if args.early_stop_metric == "valid-bac":
             learn_loss = []
@@ -366,6 +467,10 @@ def main() -> None:
             f"early_stop_metric={args.early_stop_metric}, "
             f"early_stop_best_iteration={early_stop_best_iteration}, prediction_iteration={prediction_iteration}"
         )
+        np.save(args.output_dir / "catboost_oof_proba_partial.npy", oof.astype(np.float32))
+        np.save(args.output_dir / "catboost_test_proba_partial.npy", test_pred.astype(np.float32))
+        pd.DataFrame(fold_rows).to_csv(args.output_dir / "catboost_fold_scores_partial.csv", index=False)
+        pd.DataFrame(diagnostic_rows).to_csv(args.output_dir / "catboost_training_diagnostics_partial.csv", index=False)
 
     covered = oof.sum(axis=1) > 0
     oof = normalize_probs(oof)
@@ -403,6 +508,7 @@ def main() -> None:
         "params": report_params,
         "early_stop_metric": args.early_stop_metric,
         "prediction_iteration_policy": args.prediction_iteration_policy,
+        "use_best_model": bool(args.use_best_model),
         "fixed_iteration": int(args.fixed_iteration),
         "diagnostic_period": int(args.diagnostic_period),
         "diagnostic_train_sample": int(args.diagnostic_train_sample),

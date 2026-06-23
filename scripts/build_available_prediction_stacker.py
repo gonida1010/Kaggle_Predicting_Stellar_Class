@@ -256,6 +256,16 @@ def own_model_pairs(n_train: int, n_test: int) -> list[dict]:
             ARTIFACTS / "catboost_cv_catv3_views" / "catboost_test_proba.npy",
         ),
         (
+            "our-catboost-catv3-views-noshrink",
+            ARTIFACTS / "catboost_cv_catv3_views_noshrink" / "catboost_oof_proba.npy",
+            ARTIFACTS / "catboost_cv_catv3_views_noshrink" / "catboost_test_proba.npy",
+        ),
+        (
+            "our-catboost-catv3-bac-chunked",
+            ARTIFACTS / "catboost_cv_catv3_bac_chunked" / "catboost_oof_proba.npy",
+            ARTIFACTS / "catboost_cv_catv3_bac_chunked" / "catboost_test_proba.npy",
+        ),
+        (
             "our-ovr-catboost-realmlp-features",
             ARTIFACTS / "ovr_catboost_realmlp_features" / "ovr_catboost_oof_proba.npy",
             ARTIFACTS / "ovr_catboost_realmlp_features" / "ovr_catboost_test_proba.npy",

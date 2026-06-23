@@ -6,30 +6,31 @@ cd "$(dirname "$0")/.."
 mkdir -p artifacts/overnight_logs outputs
 LOG="artifacts/overnight_logs/catv3_views_$(date +%Y%m%d_%H%M%S).log"
 PY=".venv/bin/python"
+export PYTHONUNBUFFERED=1
 
 exec > >(tee -a "$LOG") 2>&1
 
 echo "[catv3] log: $LOG"
 echo "[catv3] started: $(date)"
 echo "[catv3] purpose: CatBoost v3-style categorical views, then OOF-only stack/guarded candidates"
+echo "[catv3] important: chunked training stops by validation balanced accuracy, not logloss"
 
-echo "[1/7] Train CatBoost with catv3 categorical views"
-"$PY" scripts/train_catboost_cv.py \
-  --output-dir artifacts/catboost_cv_catv3_views \
+echo "[1/7] Train chunked CatBoost with catv3 categorical views and BAC early-stop"
+"$PY" scripts/train_catboost_bac_chunked_cv.py \
+  --output-dir artifacts/catboost_cv_catv3_bac_chunked \
   --feature-set catv3 \
   --fold-limit 5 \
-  --iterations 9000 \
-  --early-stopping-rounds 1000 \
-  --early-stop-metric valid-bac \
+  --max-iterations 4500 \
+  --chunk-size 150 \
+  --bac-patience-chunks 6 \
+  --bac-min-delta 0.0 \
   --learning-rate 0.030 \
   --depth 7 \
   --l2-leaf-reg 12 \
   --random-strength 1.0 \
   --bagging-temperature 0.55 \
-  --prediction-iteration-policy early-stop-best \
-  --diagnostic-period 250 \
   --diagnostic-train-sample 50000 \
-  --log-period 250
+  --log-period 50
 
 echo "[2/7] Build available prediction stacker with catv3 model registered"
 "$PY" scripts/build_available_prediction_stacker.py \
@@ -81,9 +82,9 @@ from pathlib import Path
 root = Path.cwd()
 jobs = [
     (
-        root / "artifacts/catboost_cv_catv3_views/catboost_baseline_report.json",
-        root / "artifacts/catboost_cv_catv3_views/catboost_baseline_submission.csv",
-        "64_PRIVATE_CV_catboost_catv3_direct",
+        root / "artifacts/catboost_cv_catv3_bac_chunked/catboost_baseline_report.json",
+        root / "artifacts/catboost_cv_catv3_bac_chunked/catboost_baseline_submission.csv",
+        "64_PRIVATE_CV_catboost_catv3_bac_chunked_direct",
         "oof_balanced_accuracy",
     ),
     (
@@ -117,7 +118,7 @@ import json
 from pathlib import Path
 
 paths = [
-    "artifacts/catboost_cv_catv3_views/catboost_baseline_report.json",
+    "artifacts/catboost_cv_catv3_bac_chunked/catboost_baseline_report.json",
     "artifacts/available_prediction_stacker_with_catv3_c010/report.json",
     "artifacts/oof_source_diversity_with_catv3/report.json",
     "artifacts/oof_generalization_stack_with_catv3_fast/report.json",
