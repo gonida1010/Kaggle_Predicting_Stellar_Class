@@ -6,11 +6,12 @@
 
 ## Dates
 
-- `2026-06-19`: 1 files
-- `2026-06-20`: 9 files
-- `2026-06-21`: 10 files
-- `2026-06-22`: 2 files
-- `2026-06-23`: 23 files
+- `2026-06-19`: 2 files
+- `2026-06-20`: 10 files
+- `2026-06-21`: 12 files
+- `2026-06-22`: 4 files
+- `2026-06-23`: 27 files
+- `2026-06-24`: 9 files
 
 ## Categories
 
@@ -18,3 +19,4 @@
 - `metrics`: report, score, candidate summary
 - `submissions`: 제출 CSV
 - `figures`: 그래프와 이미지
+- `blog`: 블로그 업로드용 연구일지
