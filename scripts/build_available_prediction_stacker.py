@@ -280,6 +280,11 @@ def own_model_pairs(n_train: int, n_test: int) -> list[dict]:
             ARTIFACTS / "lgbm_foldsafe_te_realmlp" / "lgbm_te_oof_proba.npy",
             ARTIFACTS / "lgbm_foldsafe_te_realmlp" / "lgbm_te_test_proba.npy",
         ),
+        (
+            "our-repleafgbm-sdss-bag",
+            ARTIFACTS / "repleafgbm_sdss_bag_20260626" / "repleaf_sdss_bag_oof_proba.npy",
+            ARTIFACTS / "repleafgbm_sdss_bag_20260626" / "repleaf_sdss_bag_test_proba.npy",
+        ),
     ]
     out = []
     for name, oof_path, test_path in candidates:
