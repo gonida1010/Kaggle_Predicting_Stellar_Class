@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import threading
 import zipfile
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 
@@ -42,12 +45,41 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--l2-leaf", type=float, default=5.0)
     parser.add_argument("--early-stopping-rounds", type=int, default=50)
     parser.add_argument("--beta-grid", type=float, nargs="+", default=[0.0, 0.25, 0.5, 0.75, 1.0, 1.15, 1.3, 1.5])
+    parser.add_argument(
+        "--heartbeat-seconds",
+        type=int,
+        default=60,
+        help="Print a live progress line while RepLeafGBM fit is running. Set 0 to disable.",
+    )
     parser.add_argument("--force-cpu", action="store_true")
     return parser.parse_args()
 
 
 def progress(message: str) -> None:
     print(f"[{datetime.now().strftime('%H:%M:%S')}] {message}", flush=True)
+
+
+@contextmanager
+def training_heartbeat(label: str, seconds: int):
+    if seconds <= 0:
+        yield
+        return
+
+    stopped = threading.Event()
+
+    def emit() -> None:
+        elapsed = 0
+        while not stopped.wait(seconds):
+            elapsed += seconds
+            progress(f"{label}: still training; elapsed={elapsed}s")
+
+    thread = threading.Thread(target=emit, daemon=True)
+    thread.start()
+    try:
+        yield
+    finally:
+        stopped.set()
+        thread.join(timeout=1)
 
 
 def import_repleaf():
@@ -130,14 +162,17 @@ def run_cv(
     encoder_device: str,
     split_backend: str,
     augment: tuple[pd.DataFrame, pd.Series, float] | None,
-) -> tuple[np.ndarray, np.ndarray, list[dict]]:
+) -> tuple[np.ndarray, np.ndarray, list[dict], list[dict], list[dict]]:
     skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=seed)
     splits = list(skf.split(X, y))
     oof = np.zeros((len(X), len(LABELS)), dtype=np.float64)
     test_proba = np.zeros((len(X_test), len(LABELS)), dtype=np.float64)
     fold_rows = []
+    history_rows = []
+    importance_rows = []
     for fold, (tr_idx, va_idx) in enumerate(splits[: args.fold_limit], start=1):
-        progress(f"seed={seed} fold {fold}/{args.fold_limit}: training RepLeafGBM")
+        run_label = f"seed={seed} fold={fold}/{args.fold_limit}"
+        progress(f"{run_label}: training RepLeafGBM")
         X_train = X.iloc[tr_idx]
         y_train = y.iloc[tr_idx]
         sample_weight = None
@@ -162,9 +197,39 @@ def run_cv(
             eval_metric="balanced_accuracy",
             random_state=seed,
         )
-        model.fit(X_train, y_train, sample_weight=sample_weight, eval_set=[(X.iloc[va_idx], y.iloc[va_idx])])
+        with training_heartbeat(run_label, int(args.heartbeat_seconds)):
+            model.fit(
+                X_train,
+                y_train,
+                sample_weight=sample_weight,
+                eval_set=[(X.iloc[va_idx], y.iloc[va_idx])],
+            )
         if list(model.classes_) != list(LABELS):
             raise ValueError(f"class order mismatch: {model.classes_}")
+
+        for dataset_name, metrics in getattr(model, "evals_result_", {}).items():
+            for metric_name, values in metrics.items():
+                for iteration, value in enumerate(values, start=1):
+                    history_rows.append(
+                        {
+                            "seed": int(seed),
+                            "fold": int(fold),
+                            "dataset": str(dataset_name),
+                            "metric": str(metric_name),
+                            "iteration": int(iteration),
+                            "value": float(value),
+                        }
+                    )
+        for feature, value in zip(X.columns, model.feature_importances_):
+            importance_rows.append(
+                {
+                    "seed": int(seed),
+                    "fold": int(fold),
+                    "feature": str(feature),
+                    "importance": float(value),
+                }
+            )
+
         valid_proba = model.predict_proba(X.iloc[va_idx])
         oof[va_idx] = valid_proba
         test_proba += model.predict_proba(X_test) / args.fold_limit
@@ -172,7 +237,11 @@ def run_cv(
         raw_bac = balanced_accuracy_score(y.iloc[va_idx], valid_pred)
         valid_loss = log_loss(y.iloc[va_idx], valid_proba, labels=list(LABELS))
         best_iter = getattr(model, "best_iteration_", None)
-        progress(f"seed={seed} fold={fold}: raw_bac={raw_bac:.6f}, logloss={valid_loss:.6f}, best_iteration={best_iter}")
+        best_score = getattr(model, "best_score_", None)
+        progress(
+            f"seed={seed} fold={fold}: raw_bac={raw_bac:.6f}, logloss={valid_loss:.6f}, "
+            f"best_iteration={best_iter}, early_stop_best_bac={best_score}"
+        )
         fold_rows.append(
             {
                 "seed": int(seed),
@@ -184,7 +253,104 @@ def run_cv(
                 "sdss_augmented": bool(augment is not None),
             }
         )
-    return oof, test_proba, fold_rows
+    return oof, test_proba, fold_rows, history_rows, importance_rows
+
+
+def write_diagnostics(
+    output_dir: Path,
+    history_rows: list[dict],
+    beta_rows: list[dict],
+    importance_rows: list[dict],
+) -> list[str]:
+    try:
+        mpl_config = output_dir / ".mplconfig"
+        mpl_config.mkdir(parents=True, exist_ok=True)
+        os.environ.setdefault("MPLCONFIGDIR", str(mpl_config))
+        import matplotlib
+
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+    except Exception as exc:
+        progress(f"Skipping diagnostics plot because matplotlib is unavailable: {exc}")
+        return []
+
+    fig, axes = plt.subplots(1, 3, figsize=(19, 5.8), constrained_layout=True)
+
+    history = pd.DataFrame(history_rows)
+    if not history.empty:
+        for (_, _), group in history.groupby(["seed", "fold"], sort=True):
+            axes[0].plot(
+                group["iteration"],
+                group["value"],
+                color="#7aa6c2",
+                alpha=0.22,
+                linewidth=0.8,
+            )
+        mean_curve = history.groupby("iteration", as_index=False)["value"].mean()
+        best_idx = int(mean_curve["value"].idxmax())
+        best_row = mean_curve.loc[best_idx]
+        axes[0].plot(
+            mean_curve["iteration"],
+            mean_curve["value"],
+            color="#0b3954",
+            linewidth=2.4,
+            label="mean validation BAC",
+        )
+        axes[0].scatter(
+            [best_row["iteration"]],
+            [best_row["value"]],
+            color="#d1495b",
+            s=50,
+            zorder=3,
+            label=f"mean best {int(best_row['iteration'])}",
+        )
+        axes[0].legend(frameon=False)
+    axes[0].set_title("RepLeafGBM Validation Balanced Accuracy")
+    axes[0].set_xlabel("Boosting iteration")
+    axes[0].set_ylabel("Balanced accuracy")
+    axes[0].grid(alpha=0.2)
+
+    beta = pd.DataFrame(beta_rows).sort_values("beta")
+    axes[1].plot(
+        beta["beta"],
+        beta["balanced_accuracy"],
+        marker="o",
+        color="#227c9d",
+        linewidth=2,
+    )
+    best_beta_row = beta.loc[beta["balanced_accuracy"].idxmax()]
+    axes[1].scatter(
+        [best_beta_row["beta"]],
+        [best_beta_row["balanced_accuracy"]],
+        color="#d1495b",
+        s=55,
+        zorder=3,
+    )
+    axes[1].set_title("OOF Prior-Correction Search")
+    axes[1].set_xlabel("Prior correction beta")
+    axes[1].set_ylabel("OOF balanced accuracy")
+    axes[1].grid(alpha=0.2)
+
+    importance = pd.DataFrame(importance_rows)
+    if not importance.empty:
+        top = (
+            importance.groupby("feature", as_index=False)["importance"]
+            .mean()
+            .nlargest(20, "importance")
+            .sort_values("importance")
+        )
+        axes[2].barh(top["feature"], top["importance"], color="#3a7d44")
+    axes[2].set_title("Mean Feature Importance (Top 20)")
+    axes[2].set_xlabel("Normalized gain")
+    axes[2].grid(axis="x", alpha=0.2)
+
+    paths = []
+    for suffix in ("png", "svg"):
+        path = output_dir / f"repleaf_sdss_bag_diagnostics.{suffix}"
+        fig.savefig(path, dpi=180, bbox_inches="tight")
+        paths.append(str(path.relative_to(ROOT)))
+    plt.close(fig)
+    return paths
 
 
 def main() -> None:
@@ -233,8 +399,10 @@ def main() -> None:
     member_oofs = []
     member_tests = []
     fold_rows = []
+    history_rows = []
+    importance_rows = []
     for seed in seeds:
-        oof, test_proba, rows = run_cv(
+        oof, test_proba, rows, histories, importances = run_cv(
             RepLeafClassifier,
             X,
             y,
@@ -248,6 +416,8 @@ def main() -> None:
         member_oofs.append(oof)
         member_tests.append(test_proba)
         fold_rows.extend(rows)
+        history_rows.extend(histories)
+        importance_rows.extend(importances)
 
     if args.fold_limit != 5:
         covered = np.zeros(len(X), dtype=bool)
@@ -271,7 +441,10 @@ def main() -> None:
     np.save(args.output_dir / "repleaf_sdss_bag_test_proba.npy", test_bag)
     pd.DataFrame(fold_rows).to_csv(args.output_dir / "fold_scores.csv", index=False)
     pd.DataFrame(beta_rows).to_csv(args.output_dir / "beta_scores.csv", index=False)
+    pd.DataFrame(history_rows).to_csv(args.output_dir / "training_history.csv", index=False)
+    pd.DataFrame(importance_rows).to_csv(args.output_dir / "feature_importance_by_fold.csv", index=False)
     pd.DataFrame({ID: sample[ID].to_numpy(), TARGET: test_pred}).to_csv(args.output_dir / "repleaf_sdss_bag_submission.csv", index=False)
+    diagnostic_paths = write_diagnostics(args.output_dir, history_rows, beta_rows, importance_rows)
 
     report = {
         "purpose": "RepLeafGBM OOF/test proba with SDSS17 augmentation and seed bagging.",
@@ -287,6 +460,7 @@ def main() -> None:
             "min_samples_leaf": int(args.min_samples_leaf),
             "l2_leaf": float(args.l2_leaf),
             "early_stopping_rounds": int(args.early_stopping_rounds),
+            "heartbeat_seconds": int(args.heartbeat_seconds),
             "encoder_device": encoder_device,
             "split_backend": split_backend,
         },
@@ -298,6 +472,9 @@ def main() -> None:
             "oof_proba": str((args.output_dir / "repleaf_sdss_bag_oof_proba.npy").relative_to(ROOT)),
             "test_proba": str((args.output_dir / "repleaf_sdss_bag_test_proba.npy").relative_to(ROOT)),
             "submission": str((args.output_dir / "repleaf_sdss_bag_submission.csv").relative_to(ROOT)),
+            "training_history": str((args.output_dir / "training_history.csv").relative_to(ROOT)),
+            "feature_importance": str((args.output_dir / "feature_importance_by_fold.csv").relative_to(ROOT)),
+            "diagnostics": diagnostic_paths,
         },
     }
     if args.fold_limit == 5:
