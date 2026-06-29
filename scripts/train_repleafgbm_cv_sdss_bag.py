@@ -278,6 +278,7 @@ def write_diagnostics(
 
     history = pd.DataFrame(history_rows)
     if not history.empty:
+        history["run"] = history["seed"].astype(str) + "/fold" + history["fold"].astype(str)
         for (_, _), group in history.groupby(["seed", "fold"], sort=True):
             axes[0].plot(
                 group["iteration"],
@@ -286,15 +287,25 @@ def write_diagnostics(
                 alpha=0.22,
                 linewidth=0.8,
             )
-        mean_curve = history.groupby("iteration", as_index=False)["value"].mean()
-        best_idx = int(mean_curve["value"].idxmax())
-        best_row = mean_curve.loc[best_idx]
+        run_count = int(history["run"].nunique())
+        mean_curve = (
+            history.groupby("iteration", as_index=False)
+            .agg(value=("value", "mean"), active_runs=("run", "nunique"))
+        )
+        # Do not average only the longest-surviving runs; that creates survivor bias.
+        common_curve = mean_curve[mean_curve["active_runs"] == run_count].copy()
+        if common_curve.empty:
+            common_curve = mean_curve[
+                mean_curve["active_runs"] >= max(1, int(np.ceil(run_count * 0.8)))
+            ].copy()
+        best_idx = int(common_curve["value"].idxmax())
+        best_row = common_curve.loc[best_idx]
         axes[0].plot(
-            mean_curve["iteration"],
-            mean_curve["value"],
+            common_curve["iteration"],
+            common_curve["value"],
             color="#0b3954",
             linewidth=2.4,
-            label="mean validation BAC",
+            label=f"mean validation BAC ({run_count}/{run_count} runs)",
         )
         axes[0].scatter(
             [best_row["iteration"]],
@@ -302,10 +313,10 @@ def write_diagnostics(
             color="#d1495b",
             s=50,
             zorder=3,
-            label=f"mean best {int(best_row['iteration'])}",
+            label=f"common-window best {int(best_row['iteration'])}",
         )
         axes[0].legend(frameon=False)
-    axes[0].set_title("RepLeafGBM Validation Balanced Accuracy")
+    axes[0].set_title("RepLeafGBM Validation BAC (Common Run Window)")
     axes[0].set_xlabel("Boosting iteration")
     axes[0].set_ylabel("Balanced accuracy")
     axes[0].grid(alpha=0.2)
