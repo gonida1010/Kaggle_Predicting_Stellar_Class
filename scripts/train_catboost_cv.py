@@ -5,6 +5,7 @@ import json
 import os
 import sys
 import threading
+import zipfile
 from datetime import datetime
 from pathlib import Path
 
@@ -22,7 +23,14 @@ from sklearn.preprocessing import LabelEncoder
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.append(str(ROOT))
 
-from src.stellar_features import categorical_columns_for_feature_set, make_xy  # noqa: E402
+from src.stellar_features import (  # noqa: E402
+    add_advanced_features,
+    add_catv3_style_features,
+    add_features,
+    add_realmlp_style_features,
+    categorical_columns_for_feature_set,
+    make_xy,
+)
 
 
 DATA = ROOT / "data"
@@ -50,6 +58,24 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--bagging-temperature", type=float, default=0.35)
     parser.add_argument("--seed", type=int, default=SEED)
     parser.add_argument("--log-period", type=int, default=250)
+    parser.add_argument(
+        "--sdss-zip",
+        type=Path,
+        default=None,
+        help="Optional SDSS17 CSV/ZIP. Rows are appended only to each training fold.",
+    )
+    parser.add_argument(
+        "--sdss-weight",
+        type=float,
+        default=0.0,
+        help="Sample weight for SDSS rows. A value of 0 disables external augmentation.",
+    )
+    parser.add_argument(
+        "--sdss-sample",
+        type=int,
+        default=0,
+        help="Optional deterministic SDSS row limit for smoke tests. 0 uses all rows.",
+    )
     parser.add_argument(
         "--early-stop-metric",
         choices=["logloss", "valid-bac"],
@@ -89,6 +115,92 @@ def parse_args() -> argparse.Namespace:
 
 def progress(message: str) -> None:
     print(f"[{datetime.now().strftime('%H:%M:%S')}] {message}", flush=True)
+
+
+def load_sdss17(path: Path, sample_size: int, seed: int) -> pd.DataFrame:
+    if not path.exists():
+        raise FileNotFoundError(f"SDSS file not found: {path}")
+    if path.suffix.lower() == ".zip":
+        with zipfile.ZipFile(path) as archive:
+            members = [name for name in archive.namelist() if name.endswith("star_classification.csv")]
+            if not members:
+                raise FileNotFoundError(f"star_classification.csv is missing from {path}")
+            with archive.open(members[0]) as handle:
+                external = pd.read_csv(handle)
+    else:
+        external = pd.read_csv(path)
+
+    required = ["alpha", "delta", "u", "g", "r", "i", "z", "redshift", "class"]
+    missing = [col for col in required if col not in external.columns]
+    if missing:
+        raise ValueError(f"SDSS file missing columns: {missing}")
+
+    external = external[required].copy()
+    external["spectral_type"] = "unknown"
+    external["galaxy_population"] = "unknown"
+    external = external[external["class"].isin(["GALAXY", "QSO", "STAR"])].reset_index(drop=True)
+    if sample_size > 0 and sample_size < len(external):
+        external = external.sample(n=sample_size, random_state=seed).reset_index(drop=True)
+    external.insert(0, "id", -(np.arange(len(external), dtype=np.int64) + 1))
+    return external
+
+
+def build_feature_matrices(
+    train: pd.DataFrame,
+    test: pd.DataFrame,
+    external: pd.DataFrame | None,
+    feature_set: str,
+) -> tuple[pd.DataFrame, pd.Series, pd.DataFrame, pd.DataFrame | None, pd.Series | None, list[str]]:
+    if external is None:
+        x, y_raw, x_test, features = make_xy(train, test, feature_set=feature_set)
+        return x, y_raw, x_test, None, None, features
+
+    external_y = external["class"].copy()
+    external_features = external.drop(columns=["class"])
+
+    if feature_set == "base":
+        train_fe = add_features(train)
+        test_fe = add_features(test)
+        external_fe = add_features(external_features)
+    elif feature_set == "advanced":
+        train_fe = add_advanced_features(train)
+        test_fe = add_advanced_features(test)
+        external_fe = add_advanced_features(external_features)
+    elif feature_set == "realmlp":
+        train_fe, test_fe = add_realmlp_style_features(train, test)
+        _, external_fe = add_realmlp_style_features(train, external_features)
+    elif feature_set == "catv3":
+        train_fe, test_fe = add_catv3_style_features(train, test)
+        _, external_fe = add_catv3_style_features(train, external_features)
+    else:
+        raise ValueError(f"Unknown feature_set: {feature_set}")
+
+    if feature_set in {"realmlp", "catv3"}:
+        shift_min = min(float(train["redshift"].min()), float(test["redshift"].min()), 0.0)
+        shifted = (external_fe["redshift"] - shift_min).clip(lower=0)
+        external_fe["realmlp_log1p_shifted_redshift"] = np.log1p(shifted)
+
+    for col in categorical_columns_for_feature_set(feature_set):
+        if col not in train_fe.columns or col not in test_fe.columns or col not in external_fe.columns:
+            continue
+        base_categories = sorted(set(train_fe[col].astype(str)) | set(test_fe[col].astype(str)))
+        mapping = {value: idx for idx, value in enumerate(base_categories)}
+        external_only = sorted(set(external_fe[col].astype(str)) - set(mapping))
+        mapping.update({value: len(mapping) + idx for idx, value in enumerate(external_only)})
+        dtype = "int16" if len(mapping) <= np.iinfo(np.int16).max else "int32"
+        train_fe[col] = train_fe[col].astype(str).map(mapping).astype(dtype)
+        test_fe[col] = test_fe[col].astype(str).map(mapping).astype(dtype)
+        external_fe[col] = external_fe[col].astype(str).map(mapping).astype(dtype)
+
+    features = [col for col in train_fe.columns if col not in {"id", "class"}]
+    return (
+        train_fe[features],
+        train_fe["class"],
+        test_fe[features],
+        external_fe[features],
+        external_y,
+        features,
+    )
 
 
 def read_catboost_metric_tail(train_dir: Path) -> str | None:
@@ -312,6 +424,10 @@ def write_diagnostic_plots(diagnostics: pd.DataFrame, output_dir: Path) -> None:
 
 def main() -> None:
     args = parse_args()
+    if args.sdss_weight < 0:
+        raise ValueError("--sdss-weight must be non-negative.")
+    if args.sdss_weight > 0 and args.sdss_zip is None:
+        raise ValueError("--sdss-zip is required when --sdss-weight is positive.")
     if args.use_best_model and args.prediction_iteration_policy == "valid-bac-best":
         raise ValueError(
             "--use-best-model is unsafe with --prediction-iteration-policy valid-bac-best: "
@@ -325,12 +441,27 @@ def main() -> None:
     train = pd.read_csv(DATA / "train.csv")
     test = pd.read_csv(DATA / "test.csv")
     sample = pd.read_csv(DATA / "sample_submission.csv")
+    external = None
+    if args.sdss_zip is not None:
+        sdss_path = args.sdss_zip if args.sdss_zip.is_absolute() else ROOT / args.sdss_zip
+        progress(f"Loading SDSS17 feature reference/train-fold augmentation from {sdss_path}")
+        external = load_sdss17(sdss_path, int(args.sdss_sample), int(args.seed))
+        progress(
+            f"SDSS17 accepted rows={len(external)}, train weight={args.sdss_weight:.4f}; "
+            "validation rows remain competition-only"
+        )
 
     progress(f"Building {args.feature_set} feature matrix")
-    x, y_raw, x_test, features = make_xy(train, test, feature_set=args.feature_set)
+    x, y_raw, x_test, x_external, external_y_raw, features = build_feature_matrices(
+        train,
+        test,
+        external,
+        args.feature_set,
+    )
     encoder = LabelEncoder()
     y = encoder.fit_transform(y_raw)
     classes = encoder.classes_.tolist()
+    y_external = encoder.transform(external_y_raw) if external_y_raw is not None else None
     cat_features = [features.index(col) for col in categorical_columns_for_feature_set(args.feature_set) if col in features]
 
     params = {
@@ -366,7 +497,24 @@ def main() -> None:
     for fold, (tr_idx, va_idx) in enumerate(splits, start=1):
         progress(f"Training CatBoost fold {fold}/{len(splits)}")
         diag_tr_idx = diagnostic_train_indices(tr_idx, int(args.diagnostic_train_sample), int(args.seed) + fold)
-        train_pool = Pool(x.iloc[tr_idx], y[tr_idx], cat_features=cat_features)
+        if x_external is not None and y_external is not None and args.sdss_weight > 0:
+            fold_train_x = pd.concat([x.iloc[tr_idx], x_external], ignore_index=True)
+            fold_train_y = np.concatenate([y[tr_idx], y_external])
+            fold_train_weight = np.concatenate(
+                [
+                    np.ones(len(tr_idx), dtype=np.float32),
+                    np.full(len(x_external), float(args.sdss_weight), dtype=np.float32),
+                ]
+            )
+            train_pool = Pool(
+                fold_train_x,
+                fold_train_y,
+                weight=fold_train_weight,
+                cat_features=cat_features,
+            )
+        else:
+            fold_train_x = x.iloc[tr_idx]
+            train_pool = Pool(fold_train_x, y[tr_idx], cat_features=cat_features)
         valid_pool = Pool(x.iloc[va_idx], y[va_idx], cat_features=cat_features)
         diag_train_pool = Pool(x.iloc[diag_tr_idx], y[diag_tr_idx], cat_features=cat_features)
         fold_train_dir = args.output_dir / "catboost_train_dir" / f"fold_{fold}"
@@ -395,7 +543,9 @@ def main() -> None:
             progress(
                 f"fold {fold}: fit start; use_best_model={bool(args.use_best_model)}, "
                 f"early_stop_metric={args.early_stop_metric}, "
-                f"prediction_iteration_policy={args.prediction_iteration_policy}"
+                f"prediction_iteration_policy={args.prediction_iteration_policy}, "
+                f"competition_train_rows={len(tr_idx)}, "
+                f"external_train_rows={len(x_external) if x_external is not None and args.sdss_weight > 0 else 0}"
             )
             model.fit(
                 train_pool,
@@ -456,6 +606,11 @@ def main() -> None:
                 "tree_count": tree_count,
                 "prediction_iteration": int(prediction_iteration),
                 "prediction_iteration_policy": args.prediction_iteration_policy,
+                "competition_train_rows": int(len(tr_idx)),
+                "external_train_rows": int(
+                    len(x_external) if x_external is not None and args.sdss_weight > 0 else 0
+                ),
+                "external_sample_weight": float(args.sdss_weight if args.sdss_weight > 0 else 0.0),
                 "diagnostic_best_valid_bac_iteration": int(diagnostic_best["iteration"]) if diagnostic_best else None,
                 "diagnostic_best_valid_bac": float(diagnostic_best["valid_balanced_accuracy"]) if diagnostic_best else None,
                 "class_recalls": class_recalls(y[va_idx], pred_label, classes),
@@ -505,6 +660,16 @@ def main() -> None:
         "feature_set": args.feature_set,
         "features": features,
         "cat_features": cat_features,
+        "external_augmentation": {
+            "enabled": bool(x_external is not None and args.sdss_weight > 0),
+            "source": str(args.sdss_zip) if args.sdss_zip is not None else None,
+            "feature_reference_rows": int(0 if x_external is None else len(x_external)),
+            "train_rows_per_fold": int(
+                len(x_external) if x_external is not None and args.sdss_weight > 0 else 0
+            ),
+            "sample_weight": float(args.sdss_weight if args.sdss_weight > 0 else 0.0),
+            "validation_policy": "competition_fold_only",
+        },
         "params": report_params,
         "early_stop_metric": args.early_stop_metric,
         "prediction_iteration_policy": args.prediction_iteration_policy,
