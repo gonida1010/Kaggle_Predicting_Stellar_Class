@@ -251,6 +251,11 @@ def own_model_pairs(n_train: int, n_test: int) -> list[dict]:
             ARTIFACTS / "catboost_cv_realmlp_features" / "catboost_test_proba.npy",
         ),
         (
+            "our-catboost-sdss003-realmlp",
+            ARTIFACTS / "catboost_sdss_w003_full_cv_20260629" / "catboost_oof_proba.npy",
+            ARTIFACTS / "catboost_sdss_w003_full_cv_20260629" / "catboost_test_proba.npy",
+        ),
+        (
             "our-catboost-catv3-views",
             ARTIFACTS / "catboost_cv_catv3_views" / "catboost_oof_proba.npy",
             ARTIFACTS / "catboost_cv_catv3_views" / "catboost_test_proba.npy",
@@ -279,6 +284,17 @@ def own_model_pairs(n_train: int, n_test: int) -> list[dict]:
             "our-lgbm-foldsafe-te-realmlp",
             ARTIFACTS / "lgbm_foldsafe_te_realmlp" / "lgbm_te_oof_proba.npy",
             ARTIFACTS / "lgbm_foldsafe_te_realmlp" / "lgbm_te_test_proba.npy",
+        ),
+        (
+            "our-lgbm-extended-target-stats",
+            ARTIFACTS
+            / "extended_foldsafe_target_stats_20260630"
+            / "full_extended_stats"
+            / "lgbm_te_oof_proba.npy",
+            ARTIFACTS
+            / "extended_foldsafe_target_stats_20260630"
+            / "full_extended_stats"
+            / "lgbm_te_test_proba.npy",
         ),
         (
             "our-repleafgbm-sdss-bag",

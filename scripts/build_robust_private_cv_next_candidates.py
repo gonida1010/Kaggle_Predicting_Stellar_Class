@@ -102,6 +102,17 @@ EXPLICIT_SOURCES = [
         / "classwise_research_blend_69start_20260623"
         / "85_PRIVATE_CV_classwise_research_blend_69start_oof0970608_test.npy",
     ),
+    (
+        "stacker_with_catboost_sdss003",
+        ARTIFACTS
+        / "catboost_sdss_stacker_ablation_20260630"
+        / "with_sdss003"
+        / "available_prediction_stacker_oof.npy",
+        ARTIFACTS
+        / "catboost_sdss_stacker_ablation_20260630"
+        / "with_sdss003"
+        / "available_prediction_stacker_test.npy",
+    ),
 ]
 
 

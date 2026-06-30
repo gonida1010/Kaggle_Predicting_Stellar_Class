@@ -55,6 +55,17 @@ DEFAULT_TE_COLS = [
     "z_floor_cat",
     "redshift_floor_cat",
 ]
+EXTENDED_TE_INTERACTION_COLS = [
+    "spectral_population_x_redshift_floor",
+    "spectral_type_x_redshift_floor",
+    "galaxy_population_x_redshift_floor",
+    "redshift_floor_x_g_floor",
+    "redshift_floor_x_i_floor",
+    "g_floor_x_i_floor",
+    "r_floor_x_z_floor",
+    "delta_qbin_100_x_redshift_floor",
+    "u_floor_x_g_floor",
+]
 
 
 def parse_args() -> argparse.Namespace:
@@ -81,6 +92,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--te-cols", nargs="*", default=DEFAULT_TE_COLS)
     parser.add_argument("--te-smoothing", type=float, default=40.0)
     parser.add_argument("--te-min-count", type=int, default=1)
+    parser.add_argument(
+        "--te-stat-mode",
+        choices=["basic", "extended"],
+        default="basic",
+        help="basic reproduces class means + log count; extended adds frequency, entropy, purity, margin, and unknown.",
+    )
+    parser.add_argument(
+        "--te-interaction-mode",
+        choices=["base", "extended"],
+        default="base",
+        help="extended adds compact non-target-derived category interactions used only by fold-local target statistics.",
+    )
     parser.add_argument("--log-period", type=int, default=200)
     parser.add_argument(
         "--early-stop-metric",
@@ -131,12 +154,34 @@ def prepare_base_features(train: pd.DataFrame, test: pd.DataFrame) -> tuple[pd.D
     return train_raw, test_raw, train_encoded[features].copy(), test_encoded[features].copy(), features
 
 
+def add_extended_te_interactions(frame: pd.DataFrame) -> pd.DataFrame:
+    out = frame.copy()
+    definitions = {
+        "spectral_population_x_redshift_floor": ("spectral_population", "redshift_floor_cat"),
+        "spectral_type_x_redshift_floor": ("spectral_type", "redshift_floor_cat"),
+        "galaxy_population_x_redshift_floor": ("galaxy_population", "redshift_floor_cat"),
+        "redshift_floor_x_g_floor": ("redshift_floor_cat", "g_floor_cat"),
+        "redshift_floor_x_i_floor": ("redshift_floor_cat", "i_floor_cat"),
+        "g_floor_x_i_floor": ("g_floor_cat", "i_floor_cat"),
+        "r_floor_x_z_floor": ("r_floor_cat", "z_floor_cat"),
+        "delta_qbin_100_x_redshift_floor": ("delta_qbin_100", "redshift_floor_cat"),
+        "u_floor_x_g_floor": ("u_floor_cat", "g_floor_cat"),
+    }
+    for name, (left, right) in definitions.items():
+        if left not in out.columns or right not in out.columns:
+            continue
+        out[name] = out[left].astype(str) + "_" + out[right].astype(str)
+    return out
+
+
 def fit_target_encoding(
     frame: pd.DataFrame,
     y: np.ndarray,
     cols: list[str],
     n_classes: int,
     smoothing: float,
+    min_count: int,
+    stat_mode: str,
 ) -> dict[str, dict]:
     priors = np.bincount(y, minlength=n_classes).astype(np.float64)
     priors = priors / priors.sum()
@@ -154,9 +199,24 @@ def fit_target_encoding(
         for class_idx in range(n_classes):
             encoded[class_idx] = (counts[class_idx] + priors[class_idx] * smoothing) / (total + smoothing)
         encoded["count_log1p"] = np.log1p(total)
+        if stat_mode == "extended":
+            probability_matrix = encoded[list(range(n_classes))].to_numpy(dtype=np.float64)
+            safe_probability = np.clip(probability_matrix, 1e-12, 1.0)
+            sorted_probability = np.sort(probability_matrix, axis=1)
+            encoded["frequency"] = total / max(float(len(frame)), 1.0)
+            encoded["rarity_log"] = -np.log(np.clip(encoded["frequency"], 1e-12, 1.0))
+            encoded["class_entropy"] = (
+                -(safe_probability * np.log(safe_probability)).sum(axis=1) / np.log(float(n_classes))
+            )
+            encoded["class_purity"] = probability_matrix.max(axis=1)
+            encoded["class_margin"] = sorted_probability[:, -1] - sorted_probability[:, -2]
+        if min_count > 1:
+            encoded = encoded.loc[total >= min_count].copy()
         encoders[col] = {
             "table": encoded,
             "priors": priors,
+            "stat_mode": stat_mode,
+            "train_rows": int(len(frame)),
         }
     return encoders
 
@@ -168,11 +228,30 @@ def transform_target_encoding(frame: pd.DataFrame, encoders: dict[str, dict], co
         encoder = encoders[col]
         table = encoder["table"]
         priors = encoder["priors"]
+        train_rows = int(encoder["train_rows"])
         keys = frame[col].astype(str)
         part = pd.DataFrame(index=index)
         for class_idx, label in enumerate(CLASSES):
             part[f"{prefix}_{col}_{label}"] = keys.map(table[class_idx]).fillna(float(priors[class_idx])).astype("float32")
-        part[f"{prefix}_{col}_count_log1p"] = keys.map(table["count_log1p"]).fillna(0.0).astype("float32")
+        mapped_count = keys.map(table["count_log1p"])
+        part[f"{prefix}_{col}_count_log1p"] = mapped_count.fillna(0.0).astype("float32")
+        if encoder["stat_mode"] == "extended":
+            part[f"{prefix}_{col}_frequency"] = keys.map(table["frequency"]).fillna(0.0).astype("float32")
+            part[f"{prefix}_{col}_rarity_log"] = keys.map(table["rarity_log"]).fillna(
+                float(-np.log(1.0 / max(train_rows, 1)))
+            ).astype("float32")
+            prior_entropy = float(-(priors * np.log(np.clip(priors, 1e-12, 1.0))).sum() / np.log(len(priors)))
+            prior_sorted = np.sort(priors)
+            part[f"{prefix}_{col}_class_entropy"] = keys.map(table["class_entropy"]).fillna(prior_entropy).astype(
+                "float32"
+            )
+            part[f"{prefix}_{col}_class_purity"] = keys.map(table["class_purity"]).fillna(float(priors.max())).astype(
+                "float32"
+            )
+            part[f"{prefix}_{col}_class_margin"] = keys.map(table["class_margin"]).fillna(
+                float(prior_sorted[-1] - prior_sorted[-2])
+            ).astype("float32")
+            part[f"{prefix}_{col}_unknown"] = mapped_count.isna().astype("float32")
         pieces.append(part)
     return pd.concat(pieces, axis=1)
 
@@ -187,8 +266,18 @@ def make_fold_matrices(
     va_idx: np.ndarray,
     te_cols: list[str],
     smoothing: float,
+    min_count: int,
+    stat_mode: str,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, list[str]]:
-    encoders = fit_target_encoding(train_raw.iloc[tr_idx], y[tr_idx], te_cols, len(CLASSES), smoothing)
+    encoders = fit_target_encoding(
+        train_raw.iloc[tr_idx],
+        y[tr_idx],
+        te_cols,
+        len(CLASSES),
+        smoothing,
+        min_count,
+        stat_mode,
+    )
     te_train = transform_target_encoding(train_raw.iloc[tr_idx], encoders, te_cols, "te")
     te_valid = transform_target_encoding(train_raw.iloc[va_idx], encoders, te_cols, "te")
     te_test = transform_target_encoding(test_raw, encoders, te_cols, "te")
@@ -217,10 +306,22 @@ def main() -> None:
 
     progress("Building realmlp base features")
     train_raw, test_raw, x_base, x_test_base, base_features = prepare_base_features(train, test)
-    te_cols = [col for col in args.te_cols if col in train_raw.columns and col in test_raw.columns]
+    requested_te_cols = list(args.te_cols)
+    if args.te_interaction_mode == "extended":
+        train_raw = add_extended_te_interactions(train_raw)
+        test_raw = add_extended_te_interactions(test_raw)
+        requested_te_cols.extend(EXTENDED_TE_INTERACTION_COLS)
+    te_cols = list(
+        dict.fromkeys(
+            col for col in requested_te_cols if col in train_raw.columns and col in test_raw.columns
+        )
+    )
     if not te_cols:
         raise ValueError("No valid --te-cols found.")
-    progress(f"fold-safe TE columns ({len(te_cols)}): {te_cols}")
+    progress(
+        f"fold-safe target-stat columns ({len(te_cols)}), "
+        f"stat_mode={args.te_stat_mode}, interaction_mode={args.te_interaction_mode}: {te_cols}"
+    )
 
     params = {
         "objective": "multiclass",
@@ -265,6 +366,8 @@ def main() -> None:
             va_idx,
             te_cols,
             float(args.te_smoothing),
+            int(args.te_min_count),
+            str(args.te_stat_mode),
         )
         if te_feature_names is None:
             te_feature_names = te_cols_created
@@ -361,6 +464,9 @@ def main() -> None:
         "target_encoding_columns": te_cols,
         "target_encoding_feature_count": len(te_feature_names or []),
         "te_smoothing": float(args.te_smoothing),
+        "te_min_count": int(args.te_min_count),
+        "te_stat_mode": str(args.te_stat_mode),
+        "te_interaction_mode": str(args.te_interaction_mode),
         "params": params,
         "early_stop_metric": args.early_stop_metric,
         "prediction_iteration_policy": args.prediction_iteration_policy,
