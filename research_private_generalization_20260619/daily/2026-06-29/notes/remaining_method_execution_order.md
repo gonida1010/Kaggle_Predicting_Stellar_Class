@@ -18,11 +18,16 @@
 3. 확장 fold-safe target-stat feature bank
 - 범주별 class mean뿐 아니라 count, frequency, entropy와 compact interaction을 fold 내부에서만 계산합니다.
 - validation과 test 변환에는 해당 fold train 통계만 사용합니다.
-- 다음 실행 단계.
+- 완료: basic 44개에서 extended 110개 통계 피처로 확장.
+- 단일 LightGBM OOF는 0.9678998352에서 0.9678870336으로 -0.0000128016.
+- compact interaction 200개 변형은 fold 1부터 하락해 full run을 중단.
+- nested class-wise blend는 전체 OOF에서 +0.0000248242였지만 outer-fold 평균 -0.0000052778, 개선 25/50으로 폐기.
+- 스태커 추가 시 +0.0000158696였지만 개선 fold 13/25, 부트스트랩 개선 확률 66.8%로 기본 소스에서는 제외.
 
 4. RealMLP v5 직접 학습
 - 공개 OOF를 복사하지 않고 로컬 5-fold OOF와 test probability를 직접 생성합니다.
 - embedding, robust preprocessing, ensemble, EMA, label smoothing을 단계별로 분리 검증합니다.
+- 다음 실행 단계.
 
 5. one-vs-rest TabM 직접 학습
 - class별 이진 OOF를 생성하고 class-wise logistic 결합을 검증합니다.

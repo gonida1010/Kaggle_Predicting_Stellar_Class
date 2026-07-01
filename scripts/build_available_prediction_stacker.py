@@ -286,17 +286,6 @@ def own_model_pairs(n_train: int, n_test: int) -> list[dict]:
             ARTIFACTS / "lgbm_foldsafe_te_realmlp" / "lgbm_te_test_proba.npy",
         ),
         (
-            "our-lgbm-extended-target-stats",
-            ARTIFACTS
-            / "extended_foldsafe_target_stats_20260630"
-            / "full_extended_stats"
-            / "lgbm_te_oof_proba.npy",
-            ARTIFACTS
-            / "extended_foldsafe_target_stats_20260630"
-            / "full_extended_stats"
-            / "lgbm_te_test_proba.npy",
-        ),
-        (
             "our-repleafgbm-sdss-bag",
             ARTIFACTS / "repleafgbm_sdss_bag_20260626" / "repleaf_sdss_bag_oof_proba.npy",
             ARTIFACTS / "repleafgbm_sdss_bag_20260626" / "repleaf_sdss_bag_test_proba.npy",
