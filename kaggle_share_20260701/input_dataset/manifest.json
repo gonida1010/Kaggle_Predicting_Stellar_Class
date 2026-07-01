@@ -1,0 +1,37 @@
+{
+  "title": "Stellar S6E6 robust OOF final-stage inputs",
+  "created_at": "2026-07-01",
+  "class_order": [
+    "GALAXY",
+    "QSO",
+    "STAR"
+  ],
+  "description": "Precomputed OOF/test probabilities used to reproduce the final robust selection stage of the 27th-place solution. These are not labels.",
+  "files": {
+    "reference_56_oof.npy": {
+      "source": "artifacts/te_disagreement_patch_classwise37/56_high_gi_low_rz_base_galaxy_to_star_c0_55_m0_15_b0_60_oof.npy",
+      "bytes": 6928292,
+      "sha256": "655f9d7bf3d9b080d06b542fedef637b56fb811b7ead953ff8bdab58c49b99c7"
+    },
+    "start_181_oof.npy": {
+      "source": "artifacts/robust_private_cv_after171_20260624/181_PRIVATE_CV_after171_classblend_our-catboost-realmlp-features_QSO_a0p0050_oof0970656_oof.npy",
+      "bytes": 6928292,
+      "sha256": "852b762f7e251668363359e66cd10b1f1a0f96642738b1c920d14d543184e203"
+    },
+    "start_181_test.npy": {
+      "source": "artifacts/robust_private_cv_after171_20260624/181_PRIVATE_CV_after171_classblend_our-catboost-realmlp-features_QSO_a0p0050_oof0970656_test.npy",
+      "bytes": 2969348,
+      "sha256": "df8bb8e6e68b4a075f74582a6ffe07870fa6bb662f0bfa68e02544faa0dcb7de"
+    },
+    "ovr_catboost_oof.npy": {
+      "source": "artifacts/ovr_catboost_realmlp_features/ovr_catboost_oof_proba.npy",
+      "bytes": 6928292,
+      "sha256": "798660b465296db1872157d47edd6ac6661c3c3a6712eef2f3e36220d3253f8e"
+    },
+    "ovr_catboost_test.npy": {
+      "source": "artifacts/ovr_catboost_realmlp_features/ovr_catboost_test_proba.npy",
+      "bytes": 2969348,
+      "sha256": "ba4192b529d8f8d7c5fdebf8a669e6f7167f968df5638c5c88604e3fcf3a9115"
+    }
+  }
+}
