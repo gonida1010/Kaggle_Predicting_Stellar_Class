@@ -1,11 +1,11 @@
 # Kaggle Predicting Stellar Class
 
-## Final Result: 27th / 2,824 Teams · Top 1%
+## 🏆 Final Result: 27th / 2,824 Teams · Top 1%
 
 > **Private leaderboard 0.97029 · Final rank 27 · OOF balanced accuracy 0.9706589608**
 
 Kaggle Playground Series Season 6 Episode 6 `Predicting Stellar Class` 대회에서
-2,824팀 중 27등을 기록한 연구 저장소입니다.
+2,824팀 중 27등(상위 1%)을 기록한 연구 저장소입니다.
 
 ![Final leaderboard rank 27](research_private_generalization_20260619/daily/2026-07-01/figures/2026-07-01_final_leaderboard_rank27.png)
 
