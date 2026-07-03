@@ -1,6 +1,6 @@
 # Kaggle Predicting Stellar Class
 
-## 🏆 Final Result: 27th / 2,824 Teams · Top 1%
+## 🏆 최종 순위: 27th / 2,824 Teams · 상위 1%
 
 > **Private leaderboard 0.97029 · Final rank 27 · OOF balanced accuracy 0.9706589608**
 
